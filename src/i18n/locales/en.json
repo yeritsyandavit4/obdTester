@@ -59,13 +59,32 @@
     "editProfile": "Edit Profile",
     "save": "Save",
     "changePhoto": "Change Photo",
-    "removePhoto": "Remove Photo"
+    "removePhoto": "Remove Photo",
+    "signOut": "Sign Out",
+    "signOutTitle": "Sign Out",
+    "signOutConfirm": "Are you sure you want to sign out?"
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "tagline": "Real-time vehicle diagnostics",
+    "email": "Email",
+    "emailPlaceholder": "Enter your email",
+    "password": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "loginBtn": "Sign In",
+    "registerBtn": "Create Account",
+    "errorGeneric": "Something went wrong. Please try again."
   },
   "validation": {
     "firstNameRequired": "First name is required",
     "firstNameMin": "First name must be at least 2 characters",
     "lastNameRequired": "Last name is required",
-    "lastNameMin": "Last name must be at least 2 characters"
+    "lastNameMin": "Last name must be at least 2 characters",
+    "emailRequired": "Email is required",
+    "emailInvalid": "Please enter a valid email",
+    "passwordRequired": "Password is required",
+    "passwordMin": "Password must be at least 6 characters"
   },
   "languages": {
     "en": "English",

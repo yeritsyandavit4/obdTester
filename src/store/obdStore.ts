@@ -6,6 +6,12 @@ interface DtcResult {
 }
 
 interface ObdState {
+  // Auth
+  accessToken: string | null;
+  authEmail: string;
+  isAuthenticated: boolean;
+  authLoading: boolean;
+
   // Connection
   obdHost: string;
   obdPort: string;
@@ -87,11 +93,23 @@ interface ObdState {
   setUserProfileImage: (uri: string | null) => void;
   setProfileSetupComplete: (complete: boolean) => void;
   setProfileEditVisible: (visible: boolean) => void;
-  
+
+  setAccessToken: (token: string | null) => void;
+  setAuthEmail: (email: string) => void;
+  setIsAuthenticated: (auth: boolean) => void;
+  setAuthLoading: (loading: boolean) => void;
+  logout: () => void;
+
   resetConnection: () => void;
 }
 
 export const useObdStore = create<ObdState>((set) => ({
+  // Auth
+  accessToken: null,
+  authEmail: '',
+  isAuthenticated: false,
+  authLoading: true,
+
   // Initial state
   obdHost: '192.168.0.10',
   obdPort: '35000',
@@ -171,7 +189,22 @@ export const useObdStore = create<ObdState>((set) => ({
   setUserProfileImage: (uri) => set({ userProfileImage: uri }),
   setProfileSetupComplete: (complete) => set({ profileSetupComplete: complete }),
   setProfileEditVisible: (visible) => set({ profileEditVisible: visible }),
-  
+
+  setAccessToken: (token) => set({ accessToken: token }),
+  setAuthEmail: (email) => set({ authEmail: email }),
+  setIsAuthenticated: (auth) => set({ isAuthenticated: auth }),
+  setAuthLoading: (loading) => set({ authLoading: loading }),
+  logout: () => set({
+    accessToken: null,
+    authEmail: '',
+    isAuthenticated: false,
+    profileSetupComplete: false,
+    profileEditVisible: false,
+    userFirstName: '',
+    userLastName: '',
+    userProfileImage: null,
+  }),
+
   resetConnection: () => set({
     obdConnected: false,
     obdLastResponse: '',

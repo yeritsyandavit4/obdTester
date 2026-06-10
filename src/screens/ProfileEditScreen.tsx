@@ -8,7 +8,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
@@ -17,6 +19,8 @@ import { useObdStore } from '../store/obdStore';
 import ProfileAvatar from '../components/ProfileAvatar';
 import DInput from '../components/DInput';
 import { profileSchema, ProfileFormData } from '../validation/profileSchema';
+
+const TOKEN_KEY = '@obd_access_token';
 
 const ProfileEditScreen: React.FC = () => {
   const { t } = useTranslation();
@@ -28,6 +32,7 @@ const ProfileEditScreen: React.FC = () => {
     setUserLastName,
     setUserProfileImage,
     setProfileEditVisible,
+    logout,
   } = useObdStore();
 
   const [imageUri, setImageUri] = useState<string | null>(userProfileImage);
@@ -67,6 +72,24 @@ const ProfileEditScreen: React.FC = () => {
 
   const handleBack = () => {
     setProfileEditVisible(false);
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      t('profile.signOutTitle'),
+      t('profile.signOutConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('profile.signOut'),
+          style: 'destructive',
+          onPress: async () => {
+            await AsyncStorage.removeItem(TOKEN_KEY);
+            logout();
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -145,6 +168,13 @@ const ProfileEditScreen: React.FC = () => {
             disabled={!isValid}
             activeOpacity={0.8}>
             <Text style={styles.saveBtnText}>{t('profile.save')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.signOutBtn}
+            onPress={handleSignOut}
+            activeOpacity={0.7}>
+            <Text style={styles.signOutBtnText}>{t('profile.signOut')}</Text>
           </TouchableOpacity>
 
         </ScrollView>
@@ -254,6 +284,19 @@ const styles = StyleSheet.create({
   saveBtnText: {
     color: '#FFFFFF',
     fontSize: 18,
+    fontWeight: '700',
+  },
+  signOutBtn: {
+    marginTop: 16,
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FF3B30',
+  },
+  signOutBtnText: {
+    color: '#FF3B30',
+    fontSize: 17,
     fontWeight: '700',
   },
 });

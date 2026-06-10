@@ -3176,6 +3176,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-bluetooth-classic (1.73.0-rc.17):
+    - React
   - react-native-image-picker (8.2.1):
     - boost
     - DoubleConversion
@@ -3834,6 +3836,34 @@ PODS:
     - React-utils (= 0.82.1)
     - SocketRocket
   - RecaptchaInterop (101.0.0)
+  - RNCAsyncStorage (1.24.0):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - RNDateTimePicker (8.5.0):
     - boost
     - DoubleConversion
@@ -4012,6 +4042,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-ble-plx (from `../node_modules/react-native-ble-plx`)
+  - react-native-bluetooth-classic (from `../node_modules/react-native-bluetooth-classic`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-tcp-socket (from `../node_modules/react-native-tcp-socket`)
@@ -4047,6 +4078,7 @@ DEPENDENCIES:
   - ReactAppDependencyProvider (from `build/generated/ios`)
   - ReactCodegen (from `build/generated/ios`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
+  - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNDateTimePicker (from `../node_modules/@react-native-community/datetimepicker`)"
   - "RNFBApp (from `../node_modules/@react-native-firebase/app`)"
   - "RNFBAuth (from `../node_modules/@react-native-firebase/auth`)"
@@ -4166,6 +4198,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   react-native-ble-plx:
     :path: "../node_modules/react-native-ble-plx"
+  react-native-bluetooth-classic:
+    :path: "../node_modules/react-native-bluetooth-classic"
   react-native-image-picker:
     :path: "../node_modules/react-native-image-picker"
   react-native-safe-area-context:
@@ -4236,6 +4270,8 @@ EXTERNAL SOURCES:
     :path: build/generated/ios
   ReactCommon:
     :path: "../node_modules/react-native/ReactCommon"
+  RNCAsyncStorage:
+    :path: "../node_modules/@react-native-async-storage/async-storage"
   RNDateTimePicker:
     :path: "../node_modules/@react-native-community/datetimepicker"
   RNFBApp:
@@ -4315,6 +4351,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 4c50cf6af44286015a20a5995d5321f625c93459
   React-microtasksnativemodule: a84b9331106616ab1fa36de9ae555718d4bbdcf5
   react-native-ble-plx: 9ded55bdd592dc266e5b24f2eab37000d977c118
+  react-native-bluetooth-classic: ca7d2ed5fd1ab49ccd83b0e9f19bb0cf0183113b
   react-native-image-picker: 6051cfd030121b880a58f1cc0e5e33e9887804e4
   react-native-safe-area-context: 0a3b034bb63a5b684dd2f5fffd3c90ef6ed41ee8
   react-native-tcp-socket: 7c7e53a07f122ecf00fb3626684bc0ca82c4f044
@@ -4351,6 +4388,7 @@ SPEC CHECKSUMS:
   ReactCodegen: 0bce2d209e2e802589f4c5ff76d21618200e74cb
   ReactCommon: 801eff8cb9c940c04d3a89ce399c343ee3eff654
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
+  RNCAsyncStorage: 87d51a3aa982dd38d07ecb588aa67821a4a14eee
   RNDateTimePicker: 8247b87ac4e5225c54de856ff29b7f51538b80ad
   RNFBApp: 78d866e12b98c79b7cb141fcdcdf9813eae09b15
   RNFBAuth: a05c02d5b47251b04a6c74b686053e81e2ba783a

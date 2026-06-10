@@ -59,13 +59,32 @@
     "editProfile": "Редактировать профиль",
     "save": "Сохранить",
     "changePhoto": "Изменить фото",
-    "removePhoto": "Удалить фото"
+    "removePhoto": "Удалить фото",
+    "signOut": "Выйти",
+    "signOutTitle": "Выход",
+    "signOutConfirm": "Вы уверены, что хотите выйти?"
+  },
+  "auth": {
+    "login": "Вход",
+    "register": "Регистрация",
+    "tagline": "Диагностика автомобиля в реальном времени",
+    "email": "Эл. почта",
+    "emailPlaceholder": "Введите эл. почту",
+    "password": "Пароль",
+    "passwordPlaceholder": "Введите пароль",
+    "loginBtn": "Войти",
+    "registerBtn": "Создать аккаунт",
+    "errorGeneric": "Что-то пошло не так. Попробуйте снова."
   },
   "validation": {
     "firstNameRequired": "Имя обязательно",
     "firstNameMin": "Имя должно содержать минимум 2 символа",
     "lastNameRequired": "Фамилия обязательна",
-    "lastNameMin": "Фамилия должна содержать минимум 2 символа"
+    "lastNameMin": "Фамилия должна содержать минимум 2 символа",
+    "emailRequired": "Эл. почта обязательна",
+    "emailInvalid": "Введите корректный адрес эл. почты",
+    "passwordRequired": "Пароль обязателен",
+    "passwordMin": "Пароль должен содержать не менее 6 символов"
   },
   "languages": {
     "en": "English",

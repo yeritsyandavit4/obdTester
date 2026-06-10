@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
+  Image,
   PermissionsAndroid,
   StyleSheet,
   Text,
@@ -21,7 +22,7 @@ import EngineTab from '../components/tabs/EngineTab';
 import ErrorLogTab from '../components/tabs/ErrorLogTab';
 import ConnectModal from '../components/ConnectModal';
 import { useTranslation } from 'react-i18next';
-import { scanVin } from '../services/carImageService';
+import { scanVin, fetchCarImageUrl } from '../services/carImageService';
 
 const getTabs = (t: any) => [t('dashboard.engine'), t('dashboard.errorLog')];
 
@@ -83,6 +84,7 @@ const DashboardScreen: React.FC = () => {
   const [bleDevices, setBleDevices] = useState<BluetoothDevice[]>([]);
   const [bleScanning, setBleScanning] = useState(false);
   const [connectModalVisible, setConnectModalVisible] = useState(false);
+  const [carImageUrl, setCarImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -99,6 +101,16 @@ const DashboardScreen: React.FC = () => {
   useEffect(() => {
     if (obdConnected) setConnectModalVisible(false);
   }, [obdConnected]);
+
+  useEffect(() => {
+    fetchCarImageUrl(
+      'opel',
+      'vectra',
+      '2000',
+    ).then(url => { 
+      console.log('Car image URL:', url);
+      if (url) setCarImageUrl(url); });
+  }, []);
 
   const ensureBtPermissions = async () => {
     if (Platform.OS !== 'android') return true;
@@ -238,6 +250,11 @@ const DashboardScreen: React.FC = () => {
           setModel(decoded.model ?? undefined);
           setMake(decoded.make ?? undefined);
           if (decoded.make) setVehicleMake(decoded.make);
+          fetchCarImageUrl(
+            decoded.make ?? '',
+            decoded.model ?? undefined,
+            decoded.modelYear ?? undefined,
+          ).then(url => { if (url) setCarImageUrl(url); });
         }
       } else {
         setVehicleMake('Vehicle');
@@ -464,6 +481,13 @@ const DashboardScreen: React.FC = () => {
             </>
           ) : obdConnected ? (
             <>
+              {carImageUrl ? (
+                <Image
+                  source={{ uri: carImageUrl }}
+                  style={styles.vehicleImage}
+                  resizeMode="contain"
+                />
+              ) : null}
               <View style={styles.vehicleConnectedBadge}>
                 <View style={styles.vehicleConnectedDot} />
                 <Text style={styles.vehicleConnectedBadgeText}>Connected</Text>
@@ -688,6 +712,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 12,
     elevation: 3,
+  },
+  vehicleImage: {
+    width: '100%',
+    height: 140,
+    marginBottom: 12,
+    borderRadius: 12,
   },
   vehicleConnectedBadge: {
     flexDirection: 'row',
