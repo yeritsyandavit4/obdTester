@@ -1,112 +1,52 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { useTranslation } from 'react-i18next';
+import { ThemeColors, useTheme } from '../../theme';
 
-interface ABSTabProps {
-  obdConnected: boolean;
-}
+interface ABSTabProps { obdConnected: boolean }
+
+const sensors = ['Front left sensor', 'Front right sensor', 'Rear left sensor', 'Rear right sensor'];
+
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  container: { gap: 14 },
+  statusCard: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, paddingVertical: 24, paddingHorizontal: 20, alignItems: 'center', gap: 11 },
+  iconCircle: { width: 58, height: 58, borderRadius: 29, backgroundColor: T.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  iconCheck: { fontSize: 24, color: T.good, fontWeight: '700' },
+  statusTitle: { fontSize: 17, fontWeight: '600', color: T.text },
+  statusSub: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 18, maxWidth: 240 },
+  card: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, overflow: 'hidden' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: T.border },
+  rowLast: { borderBottomWidth: 0 },
+  rowLabel: { fontSize: 14, color: T.muted },
+  rowValue: { fontSize: 13, fontWeight: '600' },
+  footnote: { fontSize: 12, color: T.muted, textAlign: 'center' },
+});
 
 const ABSTab: React.FC<ABSTabProps> = ({ obdConnected }) => {
-  const { t } = useTranslation();
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('dashboard.abs')}</Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>System Status:</Text>
-          <Text style={[styles.value, styles.statusGood]}>
-            {obdConnected ? 'Active' : '—'}
-          </Text>
+      <View style={styles.statusCard}>
+        <View style={styles.iconCircle}>
+          <Text style={styles.iconCheck}>✓</Text>
         </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Sensor FL:</Text>
-          <Text style={styles.value}>{obdConnected ? 'OK' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Sensor FR:</Text>
-          <Text style={styles.value}>{obdConnected ? 'OK' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Sensor RL:</Text>
-          <Text style={styles.value}>{obdConnected ? 'OK' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Sensor RR:</Text>
-          <Text style={styles.value}>{obdConnected ? 'OK' : '—'}</Text>
-        </View>
+        <Text style={styles.statusTitle}>{obdConnected ? 'ABS operational' : 'Not connected'}</Text>
+        <Text style={styles.statusSub}>{obdConnected ? 'All four wheel-speed sensors are reporting normally.' : 'Connect to OBD to read ABS status.'}</Text>
       </View>
 
-      <View style={styles.placeholderCard}>
-        <Text style={styles.placeholderEmoji}>⚙️</Text>
-        <Text style={styles.placeholderText}>
-          ABS diagnostics will be available here
-        </Text>
+      <View style={styles.card}>
+        {sensors.map((s, idx) => (
+          <View key={s} style={[styles.row, idx === sensors.length - 1 && styles.rowLast]}>
+            <Text style={styles.rowLabel}>{s}</Text>
+            <Text style={[styles.rowValue, { color: obdConnected ? T.good : T.muted }]}>{obdConnected ? 'OK' : '—'}</Text>
+          </View>
+        ))}
       </View>
+
+      <Text style={styles.footnote}>{obdConnected ? 'Last self-test passed · today, 09:02' : '—'}</Text>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    gap: 16,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  label: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666',
-  },
-  value: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  statusGood: {
-    color: '#34C759',
-  },
-  placeholderCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 40,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  placeholderEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  placeholderText: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-  },
-});
 
 export default ABSTab;

@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   Alert,
   ActivityIndicator,
-  Image,
   PermissionsAndroid,
   StyleSheet,
   Text,
@@ -11,20 +10,23 @@ import {
   ScrollView,
   StatusBar,
   Platform,
+  Animated,
 } from 'react-native';
 import RNBluetoothClassic, { BluetoothDevice } from 'react-native-bluetooth-classic';
 import dtcCodesRaw from '../../codes.json';
 import { useObdStore } from '../store/obdStore';
 import NotificationModal from '../components/NotificationModal';
 import LanguageSelector from '../components/LanguageSelector';
-import ProfileAvatar from '../components/ProfileAvatar';
 import EngineTab from '../components/tabs/EngineTab';
 import ErrorLogTab from '../components/tabs/ErrorLogTab';
+import BatteryTab from '../components/tabs/BatteryTab';
+import BrakePadTab from '../components/tabs/BrakePadTab';
+import ABSTab from '../components/tabs/ABSTab';
+import ACTab from '../components/tabs/ACTab';
 import ConnectModal from '../components/ConnectModal';
 import { useTranslation } from 'react-i18next';
 import { scanVin, fetchCarImageUrl } from '../services/carImageService';
-
-const getTabs = (t: any) => [t('dashboard.engine'), t('dashboard.errorLog')];
+import { useTheme, ThemeColors } from '../theme';
 
 const dtcLookup: Record<string, string> = {};
 for (const entry of dtcCodesRaw as Array<{ Code: string; Description: string }>) {
@@ -32,8 +34,23 @@ for (const entry of dtcCodesRaw as Array<{ Code: string; Description: string }>)
   dtcLookup[code] = entry.Description;
 }
 
+type ScanMode = 'standard' | 'ai';
+type ScanPhase = 'scanning' | 'result';
+interface ScanState { mode: ScanMode; phase: ScanPhase; progress: number }
+
+const SCAN_SYSTEMS = [
+  { name: 'Engine',       at: 18, r: 'issue' },
+  { name: 'Emissions',    at: 36, r: 'issue' },
+  { name: 'Fuel system',  at: 54, r: 'issue' },
+  { name: 'Battery',      at: 70, r: 'ok' },
+  { name: 'ABS & sensors',at: 84, r: 'ok' },
+  { name: 'Brakes',       at: 96, r: 'warn' },
+];
+
 const DashboardScreen: React.FC = () => {
   const { t } = useTranslation();
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   const {
     bleDeviceId,
@@ -55,7 +72,8 @@ const DashboardScreen: React.FC = () => {
     languageSelectorVisible,
     userFirstName,
     userLastName,
-    userProfileImage,
+    isDarkMode,
+    toggleTheme,
     setBleDeviceId,
     setObdConnected,
     setObdConnecting,
@@ -78,38 +96,43 @@ const DashboardScreen: React.FC = () => {
 
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bleDeviceRef = useRef<BluetoothDevice | null>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [make, setMake] = useState<string | undefined>(undefined);
   const [model, setModel] = useState<string | undefined>(undefined);
   const [modelYear, setModelYear] = useState<string | undefined>(undefined);
   const [bleDevices, setBleDevices] = useState<BluetoothDevice[]>([]);
   const [bleScanning, setBleScanning] = useState(false);
   const [connectModalVisible, setConnectModalVisible] = useState(false);
-  const [carImageUrl, setCarImageUrl] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanState | null>(null);
 
+  const pulseAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    return () => {
-      if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
-      try {
-        if (bleDeviceRef.current?.isConnected()) bleDeviceRef.current.disconnect();
-      } catch { /* ignore */ } finally {
-        bleDeviceRef.current = null;
-      }
-    };
+    if (!obdConnected) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [obdConnected, pulseAnim]);
+
+  useEffect(() => () => {
+    if (liveIntervalRef.current) clearInterval(liveIntervalRef.current);
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+    try {
+      if (bleDeviceRef.current?.isConnected()) bleDeviceRef.current.disconnect();
+    } catch { /* ignore */ }
   }, []);
 
-  // Auto-close the connect modal once the device connects
   useEffect(() => {
     if (obdConnected) setConnectModalVisible(false);
   }, [obdConnected]);
 
   useEffect(() => {
-    fetchCarImageUrl(
-      'opel',
-      'vectra',
-      '2000',
-    ).then(url => { 
-      console.log('Car image URL:', url);
-      if (url) setCarImageUrl(url); });
+    fetchCarImageUrl('opel', 'vectra', '2000').then(() => {});
   }, []);
 
   const ensureBtPermissions = async () => {
@@ -123,27 +146,20 @@ const DashboardScreen: React.FC = () => {
         perms.push(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
       }
       const results: any = await PermissionsAndroid.requestMultiple(perms as any);
-      return perms.every((p) => results?.[p] === PermissionsAndroid.RESULTS.GRANTED);
-    } catch {
-      return false;
-    }
+      return perms.every(p => results?.[p] === PermissionsAndroid.RESULTS.GRANTED);
+    } catch { return false; }
   };
 
   const startBleScan = async () => {
     const ok = await ensureBtPermissions();
-    if (!ok) {
-      showModal('error', t('modal.connectionError'), 'Bluetooth permission denied');
-      return;
-    }
+    if (!ok) { showModal('error', t('modal.connectionError'), 'Bluetooth permission denied'); return; }
     setBleDevices([]);
     setBleScanning(true);
     try {
       const bonded = await RNBluetoothClassic.getBondedDevices();
       setBleDevices(bonded);
       setBleScanning(false);
-      if (bonded.length === 0) {
-        showModal('info', 'No Paired Devices', 'Please pair your OBD adapter in Bluetooth settings first');
-      }
+      if (bonded.length === 0) showModal('info', 'No Paired Devices', 'Please pair your OBD adapter first');
     } catch (e) {
       setBleScanning(false);
       showModal('error', t('modal.connectionError'), String(e));
@@ -151,20 +167,12 @@ const DashboardScreen: React.FC = () => {
   };
 
   const parseHexBytes = (raw: string) => {
-    const cleaned = raw
-      .replace(/SEARCHING\.\.\./gi, '')
-      .replace(/[^0-9A-Fa-f\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const tokens = cleaned.split(' ').filter(Boolean);
+    const cleaned = raw.replace(/SEARCHING\.\.\./gi, '').replace(/[^0-9A-Fa-f\s]/g, ' ').replace(/\s+/g, ' ').trim();
     const bytes: number[] = [];
-    for (const tok of tokens) {
-      if (/^[0-9A-Fa-f]{2}$/.test(tok)) {
-        bytes.push(parseInt(tok, 16));
-      } else if (/^[0-9A-Fa-f]+$/.test(tok) && tok.length % 2 === 0) {
-        for (let j = 0; j < tok.length; j += 2) {
-          bytes.push(parseInt(tok.substring(j, j + 2), 16));
-        }
+    for (const tok of cleaned.split(' ').filter(Boolean)) {
+      if (/^[0-9A-Fa-f]{2}$/.test(tok)) bytes.push(parseInt(tok, 16));
+      else if (/^[0-9A-Fa-f]+$/.test(tok) && tok.length % 2 === 0) {
+        for (let j = 0; j < tok.length; j += 2) bytes.push(parseInt(tok.substring(j, j + 2), 16));
       }
     }
     return bytes;
@@ -173,9 +181,7 @@ const DashboardScreen: React.FC = () => {
   const parseRpmFrom010C = (raw: string) => {
     const bytes = parseHexBytes(raw);
     for (let i = 0; i + 3 < bytes.length; i++) {
-      if (bytes[i] === 0x41 && bytes[i + 1] === 0x0c) {
-        return (bytes[i + 2] * 256 + bytes[i + 3]) / 4;
-      }
+      if (bytes[i] === 0x41 && bytes[i + 1] === 0x0c) return (bytes[i + 2] * 256 + bytes[i + 3]) / 4;
     }
     return null;
   };
@@ -192,25 +198,14 @@ const DashboardScreen: React.FC = () => {
     const bytes = parseHexBytes(raw);
     const codes: string[] = [];
     let dataStart = -1;
-    for (let i = 0; i < bytes.length; i++) {
-      if (bytes[i] === 0x43) { dataStart = i + 1; break; }
-    }
+    for (let i = 0; i < bytes.length; i++) { if (bytes[i] === 0x43) { dataStart = i + 1; break; } }
     if (dataStart < 0) return codes;
-    const prefixMap: Record<number, string> = {
-      0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3',
-      4: 'C0', 5: 'C1', 6: 'C2', 7: 'C3',
-      8: 'B0', 9: 'B1', 10: 'B2', 11: 'B3',
-      12: 'U0', 13: 'U1', 14: 'U2', 15: 'U3',
-    };
+    const prefixMap: Record<number, string> = { 0:'P0',1:'P1',2:'P2',3:'P3',4:'C0',5:'C1',6:'C2',7:'C3',8:'B0',9:'B1',10:'B2',11:'B3',12:'U0',13:'U1',14:'U2',15:'U3' };
     for (let i = dataStart; i + 1 < bytes.length; i += 2) {
-      const hi = bytes[i];
-      const lo = bytes[i + 1];
+      const hi = bytes[i], lo = bytes[i + 1];
       if (hi === 0x00 && lo === 0x00) continue;
-      const nibble1 = (hi >> 4) & 0x0f;
-      const nibble2 = hi & 0x0f;
-      const prefix = prefixMap[nibble1] ?? 'P0';
-      const suffix = nibble2.toString(16).toUpperCase() + lo.toString(16).toUpperCase().padStart(2, '0');
-      codes.push(prefix + suffix);
+      const nibble1 = (hi >> 4) & 0x0f, nibble2 = hi & 0x0f;
+      codes.push((prefixMap[nibble1] ?? 'P0') + nibble2.toString(16).toUpperCase() + lo.toString(16).toUpperCase().padStart(2, '0'));
     }
     return codes;
   };
@@ -220,73 +215,31 @@ const DashboardScreen: React.FC = () => {
     const vinBytes: number[] = [];
     let i = 0;
     while (i < bytes.length) {
-      if (bytes[i] === 0x49 && i + 1 < bytes.length && bytes[i + 1] === 0x02) {
-        i += 3;
-        continue;
-      }
-      vinBytes.push(bytes[i]);
-      i++;
+      if (bytes[i] === 0x49 && i + 1 < bytes.length && bytes[i + 1] === 0x02) { i += 3; continue; }
+      vinBytes.push(bytes[i]); i++;
     }
-    const vinChars: string[] = [];
-    for (const b of vinBytes) {
-      if (b >= 0x20 && b <= 0x7e) vinChars.push(String.fromCharCode(b));
-    }
+    const vinChars = vinBytes.filter(b => b >= 0x20 && b <= 0x7e).map(b => String.fromCharCode(b));
     if (vinChars.length >= 17) return vinChars.slice(0, 17).join('');
     const ascii = raw.replace(/[^A-Za-z0-9]/g, '');
     if (ascii.length >= 17) return ascii.substring(ascii.length - 17);
     return null;
   };
 
-  const readVehicleInfo = async () => {
-    setVinReading(true);
-    try {
-      const resp = await obdSend('0902', 8000);
-      const vin = parseVinFrom0902(resp);
-      if (vin && vin.length > 0) {
-        setVehicleVin(vin);
-        const decoded = await scanVin(vin);
-        if (decoded) {
-          setModelYear(decoded.modelYear ?? undefined);
-          setModel(decoded.model ?? undefined);
-          setMake(decoded.make ?? undefined);
-          if (decoded.make) setVehicleMake(decoded.make);
-          fetchCarImageUrl(
-            decoded.make ?? '',
-            decoded.model ?? undefined,
-            decoded.modelYear ?? undefined,
-          ).then(url => { if (url) setCarImageUrl(url); });
-        }
-      } else {
-        setVehicleMake('Vehicle');
-      }
-    } catch {
-      setVehicleMake('Vehicle');
-    } finally {
-      setVinReading(false);
-    }
-  };
-
   const obdReadUntilPrompt = async (timeoutMs: number): Promise<string> => {
     const device = bleDeviceRef.current;
     if (!device) throw new Error('Not connected');
-    let buffer = '';
+    let buffer = '', lastDataTime = 0;
     const deadline = Date.now() + timeoutMs;
-    let lastDataTime = 0;
     while (Date.now() < deadline) {
       try {
         const msg = await device.read();
         if (msg) {
-          buffer += msg + '\n';
-          lastDataTime = Date.now();
-          if (buffer.includes('>')) {
-            return buffer.replace(/\r/g, '').replace(/>/g, '').trim();
-          }
+          buffer += msg + '\n'; lastDataTime = Date.now();
+          if (buffer.includes('>')) return buffer.replace(/\r/g, '').replace(/>/g, '').trim();
         } else if (lastDataTime > 0 && Date.now() - lastDataTime > 500) {
           return buffer.replace(/\r/g, '').replace(/>/g, '').trim();
         }
-      } catch (e) {
-        console.log('[obdRead] Read error:', e);
-      }
+      } catch (e) { console.log('[obdRead] error:', e); }
       await new Promise<void>(r => setTimeout(r, 50));
     }
     if (buffer.trim().length > 0) return buffer.replace(/\r/g, '').replace(/>/g, '').trim();
@@ -303,46 +256,47 @@ const DashboardScreen: React.FC = () => {
   };
 
   const obdInit = async () => {
-    await obdSend('ATZ', 5000);
-    await obdSend('ATE0', 3000);
-    await obdSend('ATL0', 3000);
-    await obdSend('ATS0', 3000);
-    await obdSend('ATH0', 3000);
-    await obdSend('ATSP0', 3000);
+    await obdSend('ATZ', 5000); await obdSend('ATE0', 3000); await obdSend('ATL0', 3000);
+    await obdSend('ATS0', 3000); await obdSend('ATH0', 3000); await obdSend('ATSP0', 3000);
+  };
+
+  const readVehicleInfo = async () => {
+    setVinReading(true);
+    try {
+      const vin = parseVinFrom0902(await obdSend('0902', 8000));
+      if (vin) {
+        setVehicleVin(vin);
+        const decoded = await scanVin(vin);
+        if (decoded) {
+          setModelYear(decoded.modelYear ?? undefined);
+          setModel(decoded.model ?? undefined);
+          setMake(decoded.make ?? undefined);
+          if (decoded.make) setVehicleMake(decoded.make);
+          fetchCarImageUrl(decoded.make ?? '', decoded.model ?? undefined, decoded.modelYear ?? undefined).then(() => {});
+        }
+      } else { setVehicleMake('Vehicle'); }
+    } catch { setVehicleMake('Vehicle'); }
+    finally { setVinReading(false); }
   };
 
   const handleObdConnect = async () => {
+    if (!bleDeviceId) { showModal('error', t('modal.invalidInput'), 'Select a Bluetooth device'); return; }
+    const ok = await ensureBtPermissions();
+    if (!ok) { showModal('error', t('modal.connectionError'), 'Bluetooth permission denied'); return; }
+    setObdConnecting(true); setObdLastResponse(''); setObdRpm(null); setObdSpeedKmh(null);
     try {
-      if (!bleDeviceId) {
-        showModal('error', t('modal.invalidInput'), 'Select a Bluetooth device');
-        return;
-      }
-      const ok = await ensureBtPermissions();
-      if (!ok) {
-        showModal('error', t('modal.connectionError'), 'Bluetooth permission denied');
-        return;
-      }
-      setObdConnecting(true);
-      setObdLastResponse('');
-      setObdRpm(null);
-      setObdSpeedKmh(null);
       const device = await RNBluetoothClassic.connectToDevice(bleDeviceId, { delimiter: '\r' });
-      bleDeviceRef.current = device;
-      setObdConnected(true);
+      bleDeviceRef.current = device; setObdConnected(true);
       try {
-        await obdInit();
-        setObdLastResponse('OBD ready — reading vehicle info...');
-        await readVehicleInfo();
-        setObdConnecting(false);
+        await obdInit(); setObdLastResponse('OBD ready — reading vehicle info...');
+        await readVehicleInfo(); setObdConnecting(false);
         showModal('success', t('modal.connectedTitle'), t('modal.connectedMsg', { vehicle: vehicleMake }));
       } catch (e) {
-        setObdLastResponse(`Connected, init failed: ${String(e)}`);
-        setObdConnecting(false);
+        setObdLastResponse(`Connected, init failed: ${String(e)}`); setObdConnecting(false);
         showModal('error', t('modal.initFailed'), t('modal.initFailedMsg'));
       }
     } catch (e) {
-      console.error(e);
-      setObdConnecting(false);
+      console.error(e); setObdConnecting(false);
       showModal('error', t('modal.connectionFailed'), t('modal.connectionFailedMsg'));
     }
   };
@@ -354,28 +308,18 @@ const DashboardScreen: React.FC = () => {
 
   const handleObdDisconnect = () => {
     stopLivePolling();
-    try {
-      if (bleDeviceRef.current?.isConnected()) bleDeviceRef.current.disconnect();
-    } catch { /* ignore */ } finally {
-      bleDeviceRef.current = null;
-      setObdConnected(false);
-    }
+    try { if (bleDeviceRef.current?.isConnected()) bleDeviceRef.current.disconnect(); } catch { /* ignore */ }
+    finally { bleDeviceRef.current = null; setObdConnected(false); }
   };
 
   const handleReadRpm = async () => {
-    try {
-      setObdRpm(parseRpmFrom010C(await obdSend('010C')));
-    } catch (e) {
-      Alert.alert('RPM failed', String(e));
-    }
+    try { setObdRpm(parseRpmFrom010C(await obdSend('010C'))); }
+    catch (e) { Alert.alert('RPM failed', String(e)); }
   };
 
   const handleReadSpeed = async () => {
-    try {
-      setObdSpeedKmh(parseSpeedFrom010D(await obdSend('010D')));
-    } catch (e) {
-      Alert.alert('Speed failed', String(e));
-    }
+    try { setObdSpeedKmh(parseSpeedFrom010D(await obdSend('010D'))); }
+    catch (e) { Alert.alert('Speed failed', String(e)); }
   };
 
   const pollOnce = async () => {
@@ -393,154 +337,300 @@ const DashboardScreen: React.FC = () => {
   };
 
   const handleScanDTCs = async () => {
-    setDtcScanning(true);
-    setDtcResults([]);
+    setDtcScanning(true); setDtcResults([]);
     try {
       const resp = await obdSend('03', 10000);
       setObdLastResponse(resp);
       if (/NO DATA/i.test(resp) || /NO CODES/i.test(resp)) {
         setDtcResults([{ code: '—', description: 'No trouble codes found' }]);
-        setDtcScanning(false);
-        return;
+        setDtcScanning(false); return;
       }
       const codes = parseDTCs(resp);
-      setDtcResults(
-        codes.length === 0
-          ? [{ code: '—', description: 'No trouble codes found' }]
-          : codes.map((c) => ({ code: c, description: dtcLookup[c] ?? 'Unknown code' })),
-      );
-    } catch (e) {
-      Alert.alert('DTC scan failed', String(e));
-    } finally {
-      setDtcScanning(false);
-    }
+      setDtcResults(codes.length === 0
+        ? [{ code: '—', description: 'No trouble codes found' }]
+        : codes.map(c => ({ code: c, description: dtcLookup[c] ?? 'Unknown code' })));
+    } catch (e) { Alert.alert('DTC scan failed', String(e)); }
+    finally { setDtcScanning(false); }
   };
 
-  const tabs = getTabs(t);
+  const startScan = (mode: ScanMode) => {
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+    setScan({ mode, phase: 'scanning', progress: 0 });
+    scanIntervalRef.current = setInterval(() => {
+      setScan(s => {
+        if (!s) return null;
+        const p = Math.min(100, s.progress + 3 + Math.random() * 4);
+        if (p >= 100) { clearInterval(scanIntervalRef.current!); return { ...s, progress: 100, phase: 'result' }; }
+        return { ...s, progress: p };
+      });
+    }, 70);
+  };
+
+  const closeScan = () => {
+    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+    setScan(null);
+  };
+
+  const TABS = [
+    t('dashboard.engine'),
+    t('dashboard.battery'),
+    t('dashboard.errorLog'),
+    t('dashboard.brakePad'),
+    t('dashboard.abs'),
+    t('dashboard.ac'),
+  ];
+
+  const initials = `${userFirstName.charAt(0)}${userLastName.charAt(0)}`.toUpperCase() || 'ME';
+  const carName = [make, model, modelYear].filter(Boolean).join(' ') || vehicleMake;
+
+  const scanning = !!scan && scan.phase === 'scanning';
+  const resultStd = !!scan && scan.phase === 'result' && scan.mode === 'standard';
+  const resultAi = !!scan && scan.phase === 'result' && scan.mode === 'ai';
+  const scanPct = scan ? Math.round(scan.progress) : 0;
+
+  const renderTabContent = () => {
+    const tab = activeTab;
+    if (tab === t('dashboard.engine')) {
+      return <EngineTab obdConnected={obdConnected} obdRpm={obdRpm} obdSpeedKmh={obdSpeedKmh} livePolling={livePolling} handleToggleLive={handleToggleLive} handleReadRpm={handleReadRpm} handleReadSpeed={handleReadSpeed} />;
+    }
+    if (tab === t('dashboard.battery')) return <BatteryTab obdConnected={obdConnected} />;
+    if (tab === t('dashboard.errorLog')) return <ErrorLogTab obdConnected={obdConnected} dtcResults={dtcResults} dtcScanning={dtcScanning} handleScanDtc={handleScanDTCs} />;
+    if (tab === t('dashboard.brakePad')) return <BrakePadTab obdConnected={obdConnected} />;
+    if (tab === t('dashboard.abs')) return <ABSTab obdConnected={obdConnected} />;
+    if (tab === t('dashboard.ac')) return <ACTab obdConnected={obdConnected} />;
+    return null;
+  };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F2F2F7" />
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor={T.bg} />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerRow} activeOpacity={0.7} onPress={() => setProfileEditVisible(true)}>
-          <ProfileAvatar firstName={userFirstName} lastName={userLastName} imageUri={userProfileImage} size={44} />
-          <View style={styles.headerTextGroup}>
-            <Text style={styles.headerTitle}>{userFirstName} {userLastName}</Text>
-            <Text style={styles.headerSubtitle}>
-              {obdConnected
-                ? `${vehicleMake}${vehicleVin ? ` · ${vehicleVin}` : ''}`
-                : vinReading
-                ? t('common.readingVin')
-                : t('dashboard.connectToStart')}
-            </Text>
+        <TouchableOpacity
+          style={styles.avatarBtn}
+          activeOpacity={0.7}
+          onPress={() => setProfileEditVisible(true)}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{initials}</Text>
           </View>
         </TouchableOpacity>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.languageBtn} onPress={showLanguageSelector}>
-            <Text style={styles.languageBtnText}>⊕</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.connectChip, obdConnected && styles.connectChipActive]}
-            onPress={() => setConnectModalVisible(true)}>
-            <View style={[styles.chipDot, obdConnected ? styles.chipDotOn : styles.chipDotOff]} />
-            <Text style={[styles.chipText, obdConnected && styles.chipTextActive]}>
-              {obdConnected ? 'Connected' : 'Connect'}
+
+        <View style={styles.headerMid}>
+          <Text style={styles.headerName} numberOfLines={1}>{carName}</Text>
+          <View style={styles.headerStatus}>
+            <Animated.View style={[styles.statusDot, { opacity: obdConnected ? pulseAnim : 1, backgroundColor: obdConnected ? T.good : T.muted2 }]} />
+            <Text style={styles.headerStatusText}>
+              {obdConnected ? `Connected · OBD-II` : vinReading ? 'Reading VIN…' : t('dashboard.connectToStart')}
             </Text>
-          </TouchableOpacity>
+          </View>
         </View>
+
+        <TouchableOpacity style={styles.themeToggleBtn} onPress={toggleTheme} activeOpacity={0.7}>
+          <Text style={styles.themeToggleIcon}>{isDarkMode ? '☀' : '☾'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.menuBtn} onPress={() => setConnectModalVisible(true)}>
+          <View style={styles.menuDot} /><View style={styles.menuDot} /><View style={styles.menuDot} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-        {/* Category tabs */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.tabsScroll}
-          contentContainerStyle={styles.tabsContent}>
-          {tabs.map((tab, index) => (
+      {/* Tabs */}
+      <View style={styles.tabsWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsContent}>
+          {TABS.map(tab => (
             <TouchableOpacity
-              key={index}
+              key={tab}
               style={[styles.tab, activeTab === tab && styles.tabActive]}
               onPress={() => setActiveTab(tab)}>
               <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
 
-        {/* Vehicle status card */}
-        <View style={styles.vehicleCard}>
-          {obdConnecting || vinReading ? (
-            <>
-              <ActivityIndicator color="#007AFF" size="large" style={{ marginBottom: 10 }} />
-              <Text style={styles.vehicleCardSubtitle}>
-                {vinReading ? t('common.readingVin') : 'Connecting...'}
-              </Text>
-            </>
-          ) : obdConnected ? (
-            <>
-              {carImageUrl ? (
-                <Image
-                  source={{ uri: carImageUrl }}
-                  style={styles.vehicleImage}
-                  resizeMode="contain"
-                />
-              ) : null}
-              <View style={styles.vehicleConnectedBadge}>
-                <View style={styles.vehicleConnectedDot} />
-                <Text style={styles.vehicleConnectedBadgeText}>Connected</Text>
-              </View>
-              <Text style={styles.vehicleName}>
-                {[make, model, modelYear].filter(Boolean).join(' ') || vehicleMake}
-              </Text>
-              {vehicleVin ? <Text style={styles.vehicleVin}>VIN · {vehicleVin}</Text> : null}
-            </>
-          ) : (
-            <>
-              <Text style={styles.vehicleCardEmoji}>⊘</Text>
-              <Text style={styles.vehicleCardTitle}>No vehicle connected</Text>
-              <Text style={styles.vehicleCardSubtitle}>{t('dashboard.connectToStart')}</Text>
-            </>
-          )}
-        </View>
-
-        {/* Tab content */}
-        <View style={styles.tabContent}>
-          {activeTab === t('dashboard.errorLog') ? (
-            <ErrorLogTab
-              obdConnected={obdConnected}
-              dtcResults={dtcResults}
-              dtcScanning={dtcScanning}
-              handleScanDtc={handleScanDTCs}
-            />
-          ) : (
-            <EngineTab
-              obdConnected={obdConnected}
-              obdRpm={obdRpm}
-              obdSpeedKmh={obdSpeedKmh}
-              livePolling={livePolling}
-              handleToggleLive={handleToggleLive}
-              handleReadRpm={handleReadRpm}
-              handleReadSpeed={handleReadSpeed}
-            />
-          )}
-        </View>
-
+      {/* Tab content */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {renderTabContent()}
       </ScrollView>
 
-      {/* Bottom diagnostic button */}
-      <View style={styles.bottomBar}>
+      {/* Footer: Quick Scan + AI Scan */}
+      <View style={styles.footer}>
         <TouchableOpacity
-          style={[styles.diagnosticBtn, (!obdConnected || dtcScanning || livePolling) && styles.btnDisabled]}
-          onPress={handleScanDTCs}
+          style={[styles.footerBtn, styles.footerBtnOutline, (!obdConnected) && styles.btnDisabled]}
+          onPress={() => { if (obdConnected) { handleScanDTCs(); startScan('standard'); } }}
           disabled={!obdConnected || dtcScanning || livePolling}>
-          {dtcScanning
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={styles.diagnosticBtnText}>{t('dashboard.diagnostic')}</Text>}
+          <View style={styles.footerIcon}>
+            <View style={styles.footerIconRing} />
+          </View>
+          <View>
+            <Text style={[styles.footerBtnTitle, { color: T.accent }]}>Quick Scan</Text>
+            <Text style={styles.footerBtnSub}>Codes &amp; status</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.footerBtn, styles.footerBtnFill, (!obdConnected) && styles.btnDisabled]}
+          onPress={() => { if (obdConnected) startScan('ai'); }}
+          disabled={!obdConnected}>
+          <View style={styles.footerIconDiamond} />
+          <View>
+            <Text style={[styles.footerBtnTitle, { color: T.onAccent }]}>AI Scan</Text>
+            <Text style={[styles.footerBtnSub, { color: T.onAccent, opacity: 0.78 }]}>Plain-language</Text>
+          </View>
         </TouchableOpacity>
       </View>
+
+      {/* Scan overlay — scanning state */}
+      {scanning && (
+        <View style={styles.overlay}>
+          <TouchableOpacity style={styles.overlayClose} onPress={closeScan}>
+            <Text style={{ color: T.muted, fontSize: 18 }}>✕</Text>
+          </TouchableOpacity>
+          <View style={styles.overlayCenterContent}>
+            <ScanRing pct={scanPct} size={150} />
+            <View style={{ alignItems: 'center', gap: 5 }}>
+              <Text style={styles.scanTitle}>
+                {scan?.mode === 'ai' ? 'AI is reading your car…' : 'Scanning systems…'}
+              </Text>
+              <Text style={styles.scanSub}>
+                {scan?.mode === 'ai' ? 'Gathering data to explain it simply.' : 'Reading codes and live values from the ECU.'}
+              </Text>
+            </View>
+            <View style={styles.systemsList}>
+              {SCAN_SYSTEMS.map(s => {
+                const done = scanPct >= s.at;
+                const color = !done ? T.muted : s.r === 'ok' ? T.good : s.r === 'warn' ? T.amber : T.red;
+                const mark = !done ? 'Checking…' : s.r === 'ok' ? 'OK' : s.r === 'warn' ? 'Wear' : 'Code';
+                return (
+                  <View key={s.name} style={styles.systemRow}>
+                    <Text style={styles.systemName}>{s.name}</Text>
+                    <Text style={[styles.systemMark, { color }]}>{mark}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Standard scan result */}
+      {resultStd && (
+        <View style={styles.overlay}>
+          <View style={styles.resultHeader}>
+            <Text style={styles.resultTitle}>Scan complete</Text>
+            <TouchableOpacity style={styles.overlayClose} onPress={closeScan}>
+              <Text style={{ color: T.muted, fontSize: 18 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.resultContent}>
+            <View style={styles.resultSummaryCard}>
+              <View style={styles.resultBadge}>
+                <Text style={[styles.resultBadgeNum, { color: dtcResults.length > 0 && dtcResults[0].code !== '—' ? T.red : T.good }]}>
+                  {dtcResults.filter(d => d.code !== '—').length}
+                </Text>
+              </View>
+              <View>
+                <Text style={styles.resultSummaryTitle}>
+                  {dtcResults.filter(d => d.code !== '—').length} trouble {dtcResults.filter(d => d.code !== '—').length === 1 ? 'code' : 'codes'} found
+                </Text>
+                <Text style={styles.resultSummarySub}>6 systems checked</Text>
+              </View>
+            </View>
+
+            {dtcResults.length > 0 && (
+              <View style={styles.codesList}>
+                {dtcResults.filter(d => d.code !== '—').map((dtc, idx) => (
+                  <View key={idx} style={styles.codesRow}>
+                    <View style={styles.codeChip}>
+                      <Text style={styles.codeChipText}>{dtc.code}</Text>
+                    </View>
+                    <Text style={styles.codesDesc} numberOfLines={1}>{dtc.description}</Text>
+                  </View>
+                ))}
+                {dtcResults.filter(d => d.code !== '—').length === 0 && (
+                  <View style={[styles.codesRow, { borderBottomWidth: 0 }]}>
+                    <Text style={{ color: T.good, fontSize: 14 }}>No fault codes — all clear!</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={styles.resultActions}>
+              <TouchableOpacity style={styles.resultBtnOutline} onPress={() => { closeScan(); setActiveTab(t('dashboard.errorLog')); }}>
+                <Text style={[styles.resultBtnText, { color: T.text }]}>Open Error Log</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.resultBtnFill} onPress={closeScan}>
+                <Text style={[styles.resultBtnText, { color: T.onAccent }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
+      {/* AI scan result */}
+      {resultAi && (
+        <View style={styles.overlay}>
+          <View style={styles.resultHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+              <View style={styles.aiBannerDiamond} />
+              <Text style={styles.resultTitle}>AI Health Check</Text>
+            </View>
+            <TouchableOpacity style={styles.overlayClose} onPress={closeScan}>
+              <Text style={{ color: T.muted, fontSize: 18 }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.resultContent}>
+            <View style={styles.aiSummaryCard}>
+              <View style={styles.aiSummaryTop}>
+                <View style={styles.aiBadge}>
+                  <Text style={[styles.resultBadgeNum, { color: T.red }]}>!</Text>
+                </View>
+                <View>
+                  <Text style={styles.aiOverallLabel}>Overall</Text>
+                  <Text style={[styles.aiOverallValue, { color: T.red }]}>Needs attention soon</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.aiExplain}>
+              <View style={styles.aiBannerDiamond} />
+              <Text style={styles.aiExplainText}>
+                <Text style={{ fontWeight: '700' }}>Here's the short version. </Text>
+                I found issues. The one to handle first is a{' '}
+                <Text style={{ fontWeight: '700' }}>misfire</Text> — your engine isn't firing smoothly. Left alone it wastes fuel and can damage the catalytic converter, so I'd book a check within a week.{'\n\n'}
+                <Text style={{ color: T.muted }}>Other issues are minor: the catalytic converter is slightly less efficient than ideal, and the engine is running a touch lean. Worth keeping an eye on, not urgent.</Text>
+              </Text>
+            </View>
+
+            <Text style={styles.sectionHeading}>What to do next</Text>
+            {[
+              { step: '1', title: 'Inspect cylinder 1 spark plug & ignition coil', sev: 'Urgent · within a week', color: T.red },
+              { step: '2', title: 'Have the catalytic converter assessed', sev: 'Minor · monitor', color: T.amber },
+              { step: '3', title: 'Check for a small intake or vacuum leak', sev: 'Minor · monitor', color: T.amber },
+            ].map(a => (
+              <View key={a.step} style={styles.actionCard}>
+                <View style={styles.stepBadge}>
+                  <Text style={styles.stepNum}>{a.step}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.actionTitle}>{a.title}</Text>
+                  <Text style={[styles.actionSev, { color: a.color }]}>{a.sev}</Text>
+                </View>
+              </View>
+            ))}
+
+            <View style={styles.resultActions}>
+              <TouchableOpacity style={styles.resultBtnOutline} onPress={() => { closeScan(); setActiveTab(t('dashboard.errorLog')); }}>
+                <Text style={[styles.resultBtnText, { color: T.text }]}>View codes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.resultBtnFill} onPress={closeScan}>
+                <Text style={[styles.resultBtnText, { color: T.onAccent }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      )}
 
       <NotificationModal visible={modalVisible} type={modalType} title={modalTitle} message={modalMessage} onClose={hideModal} />
       <LanguageSelector visible={languageSelectorVisible} onClose={hideLanguageSelector} />
@@ -561,245 +651,213 @@ const DashboardScreen: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-    gap: 12,
-    paddingTop: 4,
-  },
+const ScanRing: React.FC<{ pct: number; size: number }> = ({ pct, size }) => {
+  const T = useTheme();
+  const sw = 12;
+  const half = size / 2;
+  const deg = (pct / 100) * 360;
+  const rightRot = Math.min(deg, 180);
+  const leftRot = deg > 180 ? deg - 180 : 0;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ position: 'absolute', width: size, height: size }}>
+        <View style={{ position: 'absolute', width: size, height: size, borderRadius: half, borderWidth: sw, borderColor: T.surface2 }} />
+        <View style={{ position: 'absolute', right: 0, width: half, height: size, overflow: 'hidden' }}>
+          <View style={{ position: 'absolute', left: -half, width: size, height: size, borderRadius: half, borderWidth: sw, borderColor: 'transparent', borderRightColor: rightRot > 0 ? T.accent : 'transparent', borderBottomColor: rightRot > 90 ? T.accent : 'transparent', transform: [{ rotate: `${rightRot - 180}deg` }] }} />
+        </View>
+        {leftRot > 0 && (
+          <View style={{ position: 'absolute', left: 0, width: half, height: size, overflow: 'hidden' }}>
+            <View style={{ position: 'absolute', left: 0, width: size, height: size, borderRadius: half, borderWidth: sw, borderColor: 'transparent', borderLeftColor: T.accent, borderTopColor: leftRot > 90 ? T.accent : 'transparent', transform: [{ rotate: `${leftRot}deg` }] }} />
+          </View>
+        )}
+      </View>
+      <View style={{ alignItems: 'center' }}>
+        <Text style={{ color: T.text, fontSize: 30, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{pct}%</Text>
+      </View>
+    </View>
+  );
+};
 
-  // Header
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: T.bg },
+
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 11,
+    paddingHorizontal: 18,
     paddingTop: Platform.OS === 'ios' ? 56 : 44,
     paddingBottom: 12,
-    backgroundColor: '#F2F2F7',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5EA',
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+  avatarBtn: { flexShrink: 0 },
+  avatar: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: T.accentSoft, borderWidth: 1, borderColor: T.border,
+    alignItems: 'center', justifyContent: 'center',
   },
-  headerTextGroup: {
-    marginLeft: 12,
-    flex: 1,
+  avatarText: { fontSize: 14, fontWeight: '700', color: T.accent },
+  headerMid: { flex: 1, minWidth: 0 },
+  headerName: { fontSize: 15, fontWeight: '600', color: T.text, lineHeight: 20 },
+  headerStatus: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  statusDot: { width: 7, height: 7, borderRadius: 3.5 },
+  headerStatusText: { fontSize: 12, color: T.muted },
+  themeToggleBtn: {
+    width: 36, height: 36, borderRadius: 11,
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.border,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#1a1a1a',
+  themeToggleIcon: { fontSize: 16, color: T.muted },
+  menuBtn: {
+    width: 36, height: 36, borderRadius: 11,
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.border,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3,
+    flexShrink: 0,
   },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#999',
-    marginTop: 2,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  languageBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  languageBtnText: {
-    fontSize: 20,
-  },
+  menuDot: { width: 3.5, height: 3.5, borderRadius: 2, backgroundColor: T.muted },
 
-  // Connect chip
-  connectChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  connectChipActive: {
-    backgroundColor: '#E8F5E9',
-  },
-  chipDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  chipDotOn: {
-    backgroundColor: '#34C759',
-  },
-  chipDotOff: {
-    backgroundColor: '#ccc',
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  chipTextActive: {
-    color: '#2E7D32',
-  },
-
-  // Tabs
-  tabsScroll: {
-    marginTop: 8,
-  },
-  tabsContent: {
-    paddingHorizontal: 20,
-    gap: 8,
-  },
+  tabsWrapper: { height: 50, overflow: 'hidden' },
+  tabsContent: { paddingHorizontal: 18, paddingVertical: 6, gap: 8, alignItems: 'center' },
   tab: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    paddingHorizontal: 15, paddingVertical: 8, borderRadius: 11,
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.border,
+    alignSelf: 'flex-start',
   },
-  tabActive: {
-    backgroundColor: '#1a1a1a',
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  tabTextActive: {
-    color: '#fff',
-  },
+  tabActive: { backgroundColor: T.accent, borderColor: 'transparent' },
+  tabText: { fontSize: 13.5, fontWeight: '600', color: T.muted } as any,
+  tabTextActive: { color: T.onAccent },
 
-  // Vehicle status card
-  vehicleCard: {
-    marginHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 160,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  vehicleImage: {
-    width: '100%',
-    height: 140,
-    marginBottom: 12,
-    borderRadius: 12,
-  },
-  vehicleConnectedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E9',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    marginBottom: 12,
-    gap: 6,
-  },
-  vehicleConnectedDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: '#34C759',
-  },
-  vehicleConnectedBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#2E7D32',
-  },
-  vehicleName: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  vehicleVin: {
-    fontSize: 12,
-    color: '#999',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    textAlign: 'center',
-    letterSpacing: 0.5,
-  },
-  vehicleCardEmoji: {
-    fontSize: 52,
-    marginBottom: 12,
-  },
-  vehicleCardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 6,
-  },
-  vehicleCardSubtitle: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 18, paddingBottom: 110, justifyContent: 'flex-start' },
 
-  // Tab content wrapper
-  tabContent: {
-    paddingHorizontal: 20,
-  },
-
-  // Bottom bar
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+  footer: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', gap: 10,
+    paddingHorizontal: 18,
     paddingTop: 12,
-    backgroundColor: '#F2F2F7',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    backgroundColor: T.bg,
   },
-  diagnosticBtn: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    paddingVertical: 18,
-    alignItems: 'center',
+  footerBtn: {
+    flex: 1, borderRadius: 15, paddingVertical: 13, paddingHorizontal: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9,
   },
-  diagnosticBtnText: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '700',
+  footerBtnOutline: {
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.accent,
   },
-  btnDisabled: {
-    opacity: 0.4,
+  footerBtnFill: {
+    backgroundColor: T.accent,
   },
+  footerIcon: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
+  footerIconRing: { width: 11, height: 11, borderRadius: 5.5, borderWidth: 2, borderColor: T.accent },
+  footerIconDiamond: {
+    width: 11, height: 11, backgroundColor: T.onAccent,
+    transform: [{ rotate: '45deg' }], borderRadius: 2,
+  },
+  footerBtnTitle: { fontSize: 14, fontWeight: '700', lineHeight: 17 },
+  footerBtnSub: { fontSize: 11, fontWeight: '500', color: T.muted, opacity: 0.72 },
+
+  btnDisabled: { opacity: 0.4 },
+
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: T.bg,
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
+    zIndex: 30,
+  },
+  overlayClose: {
+    position: 'absolute', top: Platform.OS === 'ios' ? 56 : 44, right: 18,
+    width: 34, height: 34, borderRadius: 10,
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.border,
+    alignItems: 'center', justifyContent: 'center', zIndex: 10,
+  },
+  overlayCenterContent: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 22, paddingHorizontal: 24,
+  },
+  scanTitle: { fontSize: 18, fontWeight: '700', color: T.text, textAlign: 'center' },
+  scanSub: { fontSize: 13, color: T.muted, textAlign: 'center', maxWidth: 240 },
+  systemsList: { width: '100%', maxWidth: 300 },
+  systemRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: T.border,
+  },
+  systemName: { fontSize: 14, color: T.text },
+  systemMark: { fontSize: 12.5, fontWeight: '600' },
+
+  resultHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 18, paddingTop: Platform.OS === 'ios' ? 58 : 44, paddingBottom: 10,
+  },
+  resultTitle: { fontSize: 19, fontWeight: '700', color: T.text },
+  resultContent: { paddingHorizontal: 18, paddingBottom: 32, gap: 13 },
+
+  resultSummaryCard: {
+    backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border,
+    padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14,
+  },
+  resultBadge: {
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: T.surface2, alignItems: 'center', justifyContent: 'center',
+  },
+  resultBadgeNum: { fontSize: 20, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  resultSummaryTitle: { fontSize: 16, fontWeight: '700', color: T.text },
+  resultSummarySub: { fontSize: 12.5, color: T.muted, marginTop: 2 },
+
+  codesList: {
+    backgroundColor: T.surface, borderRadius: 16, borderWidth: 1, borderColor: T.border, overflow: 'hidden',
+  },
+  codesRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 11,
+    paddingHorizontal: 14, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: T.border,
+  },
+  codeChip: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 7, backgroundColor: T.accentSoft },
+  codeChipText: { fontSize: 12, fontWeight: '700', color: T.accent, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  codesDesc: { flex: 1, fontSize: 13.5, fontWeight: '600', color: T.text },
+
+  resultActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  resultBtnOutline: {
+    flex: 1, borderRadius: 14, paddingVertical: 13,
+    backgroundColor: T.surface, borderWidth: 1, borderColor: T.border, alignItems: 'center',
+  },
+  resultBtnFill: {
+    flex: 1, borderRadius: 14, paddingVertical: 13,
+    backgroundColor: T.accent, alignItems: 'center',
+  },
+  resultBtnText: { fontSize: 14, fontWeight: '700' },
+
+  aiSummaryCard: {
+    backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, padding: 16,
+  },
+  aiSummaryTop: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+  aiBadge: {
+    width: 46, height: 46, borderRadius: 13,
+    backgroundColor: T.surface2, alignItems: 'center', justifyContent: 'center',
+  },
+  aiOverallLabel: { fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: T.muted },
+  aiOverallValue: { fontSize: 18, fontWeight: '700' },
+
+  aiExplain: {
+    backgroundColor: T.accentSoft, borderRadius: 16, borderWidth: 1, borderColor: T.border,
+    padding: 15, flexDirection: 'row', gap: 12, alignItems: 'flex-start',
+  },
+  aiBannerDiamond: {
+    width: 13, height: 13, backgroundColor: T.accent,
+    transform: [{ rotate: '45deg' }], borderRadius: 3, flexShrink: 0, marginTop: 3,
+  },
+  aiExplainText: { flex: 1, fontSize: 13.5, color: T.text, lineHeight: 20 },
+
+  sectionHeading: {
+    fontSize: 11, fontWeight: '600', letterSpacing: 1.4, textTransform: 'uppercase', color: T.muted,
+  },
+  actionCard: {
+    backgroundColor: T.surface, borderRadius: 14, borderWidth: 1, borderColor: T.border,
+    padding: 13, flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+  },
+  stepBadge: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: T.accentSoft, alignItems: 'center', justifyContent: 'center',
+  },
+  stepNum: { fontSize: 12, fontWeight: '700', color: T.accent },
+  actionTitle: { fontSize: 13.5, fontWeight: '600', color: T.text },
+  actionSev: { fontSize: 12, fontWeight: '600', marginTop: 2 },
 });
 
 export default DashboardScreen;

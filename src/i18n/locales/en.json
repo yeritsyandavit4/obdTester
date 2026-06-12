@@ -74,7 +74,9 @@
     "passwordPlaceholder": "Enter your password",
     "loginBtn": "Sign In",
     "registerBtn": "Create Account",
-    "errorGeneric": "Something went wrong. Please try again."
+    "errorGeneric": "Something went wrong. Please try again.",
+    "continueAsGuest": "Continue as Guest",
+    "guestNote": "Limited to basic diagnostics. No account needed."
   },
   "validation": {
     "firstNameRequired": "First name is required",

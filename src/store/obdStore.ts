@@ -11,6 +11,7 @@ interface ObdState {
   authEmail: string;
   isAuthenticated: boolean;
   authLoading: boolean;
+  isGuest: boolean;
 
   // Connection
   obdHost: string;
@@ -40,6 +41,7 @@ interface ObdState {
   livePolling: boolean;
   showSettings: boolean;
   activeTab: string;
+  isDarkMode: boolean;
   
   // Modal notification
   modalVisible: boolean;
@@ -81,6 +83,7 @@ interface ObdState {
   setLivePolling: (polling: boolean) => void;
   setShowSettings: (show: boolean) => void;
   setActiveTab: (tab: string) => void;
+  toggleTheme: () => void;
   
   showModal: (type: 'success' | 'error' | 'info', title: string, message: string) => void;
   hideModal: () => void;
@@ -98,6 +101,7 @@ interface ObdState {
   setAuthEmail: (email: string) => void;
   setIsAuthenticated: (auth: boolean) => void;
   setAuthLoading: (loading: boolean) => void;
+  enterGuestMode: () => void;
   logout: () => void;
 
   resetConnection: () => void;
@@ -109,6 +113,7 @@ export const useObdStore = create<ObdState>((set) => ({
   authEmail: '',
   isAuthenticated: false,
   authLoading: true,
+  isGuest: false,
 
   // Initial state
   obdHost: '192.168.0.10',
@@ -134,6 +139,7 @@ export const useObdStore = create<ObdState>((set) => ({
   livePolling: false,
   showSettings: true,
   activeTab: 'Engine',
+  isDarkMode: true,
   
   modalVisible: false,
   modalType: 'info',
@@ -172,6 +178,7 @@ export const useObdStore = create<ObdState>((set) => ({
   setLivePolling: (polling) => set({ livePolling: polling }),
   setShowSettings: (show) => set({ showSettings: show }),
   setActiveTab: (tab) => set({ activeTab: tab }),
+  toggleTheme: () => set(s => ({ isDarkMode: !s.isDarkMode })),
   
   showModal: (type, title, message) => set({
     modalVisible: true,
@@ -194,10 +201,18 @@ export const useObdStore = create<ObdState>((set) => ({
   setAuthEmail: (email) => set({ authEmail: email }),
   setIsAuthenticated: (auth) => set({ isAuthenticated: auth }),
   setAuthLoading: (loading) => set({ authLoading: loading }),
+  enterGuestMode: () => set({
+    isGuest: true,
+    isAuthenticated: true,
+    profileSetupComplete: true,
+    userFirstName: 'Guest',
+    userLastName: '',
+  }),
   logout: () => set({
     accessToken: null,
     authEmail: '',
     isAuthenticated: false,
+    isGuest: false,
     profileSetupComplete: false,
     profileEditVisible: false,
     userFirstName: '',

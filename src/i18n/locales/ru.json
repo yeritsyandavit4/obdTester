@@ -74,7 +74,9 @@
     "passwordPlaceholder": "Введите пароль",
     "loginBtn": "Войти",
     "registerBtn": "Создать аккаунт",
-    "errorGeneric": "Что-то пошло не так. Попробуйте снова."
+    "errorGeneric": "Что-то пошло не так. Попробуйте снова.",
+    "continueAsGuest": "Продолжить как гость",
+    "guestNote": "Только базовая диагностика. Аккаунт не нужен."
   },
   "validation": {
     "firstNameRequired": "Имя обязательно",

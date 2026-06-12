@@ -1,103 +1,58 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { useTranslation } from 'react-i18next';
+import { ThemeColors, useTheme } from '../../theme';
 
-interface BrakePadTabProps {
-  obdConnected: boolean;
-}
+interface BrakePadTabProps { obdConnected: boolean }
+
+const wheels = [
+  { label: 'Front left',  pct: 38, km: 7000 },
+  { label: 'Front right', pct: 41, km: 8000 },
+  { label: 'Rear left',   pct: 82, km: 24000 },
+  { label: 'Rear right',  pct: 80, km: 23000 },
+];
+
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  container: { gap: 12 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  card: { width: '47.5%', backgroundColor: T.surface, borderRadius: 16, borderWidth: 1, borderColor: T.border, padding: 13, gap: 9 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  cardLabel: { fontSize: 12, color: T.muted },
+  cardPct: { fontSize: 18, fontWeight: '700', color: T.text },
+  track: { height: 7, borderRadius: 4, backgroundColor: T.surface2, overflow: 'hidden' },
+  bar: { height: '100%', borderRadius: 4 },
+  cardKm: { fontSize: 11, color: T.muted },
+  notice: { backgroundColor: T.surface, borderRadius: 14, borderWidth: 1, borderColor: T.border, paddingHorizontal: 14, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  noticeDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  noticeText: { flex: 1, fontSize: 13, color: T.text, lineHeight: 18 },
+});
 
 const BrakePadTab: React.FC<BrakePadTabProps> = ({ obdConnected }) => {
-  const { t } = useTranslation();
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>{t('dashboard.brakePad')}</Text>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Front Left:</Text>
-          <Text style={styles.value}>{obdConnected ? '85%' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Front Right:</Text>
-          <Text style={styles.value}>{obdConnected ? '82%' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Rear Left:</Text>
-          <Text style={styles.value}>{obdConnected ? '78%' : '—'}</Text>
-        </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Rear Right:</Text>
-          <Text style={styles.value}>{obdConnected ? '80%' : '—'}</Text>
-        </View>
+      <View style={styles.grid}>
+        {wheels.map(({ label, pct, km }) => (
+          <View key={label} style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardLabel}>{label}</Text>
+              <Text style={styles.cardPct}>{obdConnected ? `${pct}%` : '—'}</Text>
+            </View>
+            <View style={styles.track}>
+              <View style={[styles.bar, { width: obdConnected ? `${pct}%` : '0%', backgroundColor: pct < 50 ? T.amber : T.good }]} />
+            </View>
+            <Text style={styles.cardKm}>{obdConnected ? `≈ ${km.toLocaleString()} km left` : '—'}</Text>
+          </View>
+        ))}
       </View>
 
-      <View style={styles.placeholderCard}>
-        <Text style={styles.placeholderEmoji}>🛞</Text>
-        <Text style={styles.placeholderText}>
-          Brake pad diagnostics will be available here
-        </Text>
+      <View style={styles.notice}>
+        <View style={[styles.noticeDot, { backgroundColor: T.amber }]} />
+        <Text style={styles.noticeText}>Front pads are wearing — plan a replacement within ~3 months.</Text>
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    gap: 16,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  label: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666',
-  },
-  value: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  placeholderCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 40,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  placeholderEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  placeholderText: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-  },
-});
 
 export default BrakePadTab;

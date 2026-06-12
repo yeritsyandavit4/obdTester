@@ -1,6 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { useTranslation } from 'react-i18next';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+import { ThemeColors, useTheme } from '../../theme';
 
 interface ErrorLogTabProps {
   obdConnected: boolean;
@@ -9,123 +9,122 @@ interface ErrorLogTabProps {
   handleScanDtc: () => void;
 }
 
-const ErrorLogTab: React.FC<ErrorLogTabProps> = ({
-  obdConnected,
-  dtcResults,
-  dtcScanning,
-  handleScanDtc,
-}) => {
-  const { t } = useTranslation();
+const getSeverity = (code: string): 'urgent' | 'minor' | 'ok' => {
+  if (code === '—') return 'ok';
+  const c = code.toUpperCase();
+  if (c.startsWith('P0') && (c.includes('301') || c.includes('302') || c.includes('300'))) return 'urgent';
+  if (c.startsWith('U') || c.startsWith('B')) return 'urgent';
+  return 'minor';
+};
+
+const SEV_LABEL: Record<string, string> = { urgent: 'Urgent', minor: 'Minor', ok: 'OK' };
+
+const makeStyles = (T: ThemeColors) => StyleSheet.create({
+  container: { gap: 13 },
+  chips: { flexDirection: 'row', gap: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: T.surface, borderRadius: 10, borderWidth: 1, borderColor: T.border },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  chipText: { fontSize: 12.5, color: T.text },
+  card: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: T.border },
+  rowLast: { borderBottomWidth: 0 },
+  codeChip: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 7, backgroundColor: T.accentSoft },
+  codeChipText: { fontSize: 12, fontWeight: '700', color: T.accent, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  rowMid: { flex: 1, minWidth: 0 },
+  rowTitle: { fontSize: 14, fontWeight: '600', color: T.text },
+  sevBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  sevDot: { width: 7, height: 7, borderRadius: 3.5 },
+  sevText: { fontSize: 12, fontWeight: '600' },
+  noCodesText: { flex: 1, fontSize: 14, color: T.muted },
+  empty: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, paddingVertical: 48, paddingHorizontal: 24, alignItems: 'center', gap: 8 },
+  emptyIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.surface2, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyIconText: { fontSize: 26, color: T.muted },
+  emptyTitle: { fontSize: 16, fontWeight: '600', color: T.text },
+  emptySubtitle: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 18 },
+  aiBanner: { backgroundColor: T.accentSoft, borderRadius: 14, borderWidth: 1, borderColor: T.border, paddingHorizontal: 14, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  aiBannerDiamond: { width: 11, height: 11, backgroundColor: T.accent, transform: [{ rotate: '45deg' }], borderRadius: 2, flexShrink: 0 },
+  aiBannerText: { flex: 1, fontSize: 13, color: T.text, lineHeight: 18 },
+  aiBannerAccent: { fontWeight: '700', color: T.accent },
+});
+
+const ErrorLogTab: React.FC<ErrorLogTabProps> = ({ obdConnected, dtcResults, dtcScanning }) => {
+  const T = useTheme();
+  const styles = useMemo(() => makeStyles(T), [T]);
+
+  const sevColor = { urgent: T.red, minor: T.amber, ok: T.good };
+  const realCodes = dtcResults.filter(d => d.code !== '—');
+  const urgentCount = realCodes.filter(d => getSeverity(d.code) === 'urgent').length;
+  const minorCount  = realCodes.filter(d => getSeverity(d.code) === 'minor').length;
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
-        <View style={styles.cardHeaderRow}>
-          <Text style={styles.cardTitle}>{t('dashboard.troubleCodes')}</Text>
-          <TouchableOpacity
-            style={[styles.scanBtn, !obdConnected && styles.btnDisabled]}
-            onPress={handleScanDtc}
-            disabled={!obdConnected || dtcScanning}>
-            <Text style={styles.scanBtnText}>
-              {dtcScanning ? 'Scanning...' : t('dashboard.diagnostic')}
-            </Text>
-          </TouchableOpacity>
+      {realCodes.length > 0 && (
+        <View style={styles.chips}>
+          {urgentCount > 0 && (
+            <View style={styles.chip}>
+              <View style={[styles.chipDot, { backgroundColor: T.red }]} />
+              <Text style={styles.chipText}>{urgentCount} urgent</Text>
+            </View>
+          )}
+          {minorCount > 0 && (
+            <View style={styles.chip}>
+              <View style={[styles.chipDot, { backgroundColor: T.amber }]} />
+              <Text style={styles.chipText}>{minorCount} minor</Text>
+            </View>
+          )}
         </View>
+      )}
 
-        {dtcResults.length > 0 ? (
-          <ScrollView style={styles.dtcList}>
-            {dtcResults.map((dtc, idx) => (
-              <View key={idx} style={styles.dtcItem}>
-                <Text style={styles.dtcCode}>{dtc.code}</Text>
-                <Text style={styles.dtcDesc}>{dtc.description}</Text>
+      {dtcResults.length > 0 ? (
+        <View style={styles.card}>
+          {dtcResults.map((dtc, idx) => {
+            const sev = getSeverity(dtc.code);
+            const isLast = idx === dtcResults.length - 1;
+            if (dtc.code === '—') {
+              return (
+                <View key={idx} style={[styles.row, isLast && styles.rowLast]}>
+                  <Text style={styles.noCodesText}>{dtc.description}</Text>
+                </View>
+              );
+            }
+            return (
+              <View key={idx} style={[styles.row, isLast && styles.rowLast]}>
+                <View style={styles.codeChip}>
+                  <Text style={styles.codeChipText}>{dtc.code}</Text>
+                </View>
+                <View style={styles.rowMid}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>{dtc.description}</Text>
+                </View>
+                <View style={styles.sevBadge}>
+                  <View style={[styles.sevDot, { backgroundColor: sevColor[sev] }]} />
+                  <Text style={[styles.sevText, { color: sevColor[sev] }]}>{SEV_LABEL[sev]}</Text>
+                </View>
               </View>
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>◎</Text>
-            <Text style={styles.emptyText}>
-              {obdConnected
-                ? 'No error codes found. Tap Diagnostic to scan.'
-                : 'Connect to OBD to scan for errors'}
-            </Text>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={styles.empty}>
+          <View style={styles.emptyIcon}>
+            <Text style={styles.emptyIconText}>○</Text>
           </View>
-        )}
-      </View>
+          <Text style={styles.emptyTitle}>{dtcScanning ? 'Scanning systems…' : 'No codes scanned yet'}</Text>
+          <Text style={styles.emptySubtitle}>{obdConnected ? 'Tap Quick Scan below to read fault codes' : 'Connect to OBD to scan for errors'}</Text>
+        </View>
+      )}
+
+      {realCodes.length > 0 && (
+        <View style={styles.aiBanner}>
+          <View style={styles.aiBannerDiamond} />
+          <Text style={styles.aiBannerText}>
+            Not sure what these mean?{' '}
+            <Text style={styles.aiBannerAccent}>AI Scan</Text>
+            {' '}explains each code in plain language.
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    gap: 16,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  scanBtn: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  btnDisabled: {
-    backgroundColor: '#ccc',
-  },
-  scanBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  dtcList: {
-    maxHeight: 300,
-  },
-  dtcItem: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  dtcCode: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FF3B30',
-    marginBottom: 4,
-  },
-  dtcDesc: {
-    fontSize: 14,
-    color: '#666',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-  },
-});
 
 export default ErrorLogTab;
