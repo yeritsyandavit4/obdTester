@@ -4,21 +4,15 @@ import { ThemeColors, useTheme } from '../../theme';
 
 interface ABSTabProps { obdConnected: boolean }
 
-const sensors = ['Front left sensor', 'Front right sensor', 'Rear left sensor', 'Rear right sensor'];
-
 const makeStyles = (T: ThemeColors) => StyleSheet.create({
   container: { gap: 14 },
-  statusCard: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, paddingVertical: 24, paddingHorizontal: 20, alignItems: 'center', gap: 11 },
-  iconCircle: { width: 58, height: 58, borderRadius: 29, backgroundColor: T.accentSoft, alignItems: 'center', justifyContent: 'center' },
-  iconCheck: { fontSize: 24, color: T.good, fontWeight: '700' },
-  statusTitle: { fontSize: 17, fontWeight: '600', color: T.text },
-  statusSub: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 18, maxWidth: 240 },
-  card: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, overflow: 'hidden' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: T.border },
-  rowLast: { borderBottomWidth: 0 },
-  rowLabel: { fontSize: 14, color: T.muted },
-  rowValue: { fontSize: 13, fontWeight: '600' },
-  footnote: { fontSize: 12, color: T.muted, textAlign: 'center' },
+  statusCard: { backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, paddingVertical: 28, paddingHorizontal: 22, alignItems: 'center', gap: 10 },
+  iconCircle: { width: 58, height: 58, borderRadius: 29, backgroundColor: T.surface2, alignItems: 'center', justifyContent: 'center' },
+  iconText: { fontSize: 15, fontWeight: '700', letterSpacing: 0.5, color: T.muted },
+  statusTitle: { fontSize: 17, fontWeight: '600', color: T.text, textAlign: 'center' },
+  statusSub: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 19, maxWidth: 280 },
+  note: { backgroundColor: T.surface2, borderRadius: 14, borderWidth: 1, borderColor: T.border, paddingHorizontal: 14, paddingVertical: 12 },
+  noteText: { fontSize: 12.5, color: T.muted, lineHeight: 18 },
 });
 
 const ABSTab: React.FC<ABSTabProps> = ({ obdConnected }) => {
@@ -29,22 +23,23 @@ const ABSTab: React.FC<ABSTabProps> = ({ obdConnected }) => {
     <View style={styles.container}>
       <View style={styles.statusCard}>
         <View style={styles.iconCircle}>
-          <Text style={styles.iconCheck}>✓</Text>
+          <Text style={styles.iconText}>ABS</Text>
         </View>
-        <Text style={styles.statusTitle}>{obdConnected ? 'ABS operational' : 'Not connected'}</Text>
-        <Text style={styles.statusSub}>{obdConnected ? 'All four wheel-speed sensors are reporting normally.' : 'Connect to OBD to read ABS status.'}</Text>
+        <Text style={styles.statusTitle}>{obdConnected ? 'ABS data not available' : 'Not connected'}</Text>
+        <Text style={styles.statusSub}>
+          {obdConnected
+            ? 'ABS faults are stored as chassis (C) codes in a separate control module and are not reachable through generic OBD-II.'
+            : 'Connect to OBD to read available diagnostics.'}
+        </Text>
       </View>
 
-      <View style={styles.card}>
-        {sensors.map((s, idx) => (
-          <View key={s} style={[styles.row, idx === sensors.length - 1 && styles.rowLast]}>
-            <Text style={styles.rowLabel}>{s}</Text>
-            <Text style={[styles.rowValue, { color: obdConnected ? T.good : T.muted }]}>{obdConnected ? 'OK' : '—'}</Text>
-          </View>
-        ))}
-      </View>
-
-      <Text style={styles.footnote}>{obdConnected ? 'Last self-test passed · today, 09:02' : '—'}</Text>
+      {obdConnected && (
+        <View style={styles.note}>
+          <Text style={styles.noteText}>
+            If an ABS warning light is on in your dashboard, the fault lives in the ABS module. Reading it requires a manufacturer-specific scan tool or protocol, which the generic OBD-II Error Log scan (mode 03) cannot access.
+          </Text>
+        </View>
+      )}
     </View>
   );
 };

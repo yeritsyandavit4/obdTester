@@ -32,7 +32,12 @@ interface ObdState {
   // Live data
   obdRpm: number | null;
   obdSpeedKmh: number | null;
-  
+  obdCoolantC: number | null;
+  obdThrottlePct: number | null;
+  obdIntakeC: number | null;
+  obdEngineLoadPct: number | null;
+  obdVoltage: number | null;
+
   // DTC
   dtcResults: DtcResult[];
   dtcScanning: boolean;
@@ -76,7 +81,12 @@ interface ObdState {
   
   setObdRpm: (rpm: number | null) => void;
   setObdSpeedKmh: (speed: number | null) => void;
-  
+  setObdCoolantC: (v: number | null) => void;
+  setObdThrottlePct: (v: number | null) => void;
+  setObdIntakeC: (v: number | null) => void;
+  setObdEngineLoadPct: (v: number | null) => void;
+  setObdVoltage: (v: number | null) => void;
+
   setDtcResults: (results: DtcResult[]) => void;
   setDtcScanning: (scanning: boolean) => void;
   
@@ -132,7 +142,12 @@ export const useObdStore = create<ObdState>((set) => ({
   
   obdRpm: null,
   obdSpeedKmh: null,
-  
+  obdCoolantC: null,
+  obdThrottlePct: null,
+  obdIntakeC: null,
+  obdEngineLoadPct: null,
+  obdVoltage: null,
+
   dtcResults: [],
   dtcScanning: false,
   
@@ -171,7 +186,12 @@ export const useObdStore = create<ObdState>((set) => ({
   
   setObdRpm: (rpm) => set({ obdRpm: rpm }),
   setObdSpeedKmh: (speed) => set({ obdSpeedKmh: speed }),
-  
+  setObdCoolantC: (v) => set({ obdCoolantC: v }),
+  setObdThrottlePct: (v) => set({ obdThrottlePct: v }),
+  setObdIntakeC: (v) => set({ obdIntakeC: v }),
+  setObdEngineLoadPct: (v) => set({ obdEngineLoadPct: v }),
+  setObdVoltage: (v) => set({ obdVoltage: v }),
+
   setDtcResults: (results) => set({ dtcResults: results }),
   setDtcScanning: (scanning) => set({ dtcScanning: scanning }),
   
@@ -225,6 +245,11 @@ export const useObdStore = create<ObdState>((set) => ({
     obdLastResponse: '',
     obdRpm: null,
     obdSpeedKmh: null,
+    obdCoolantC: null,
+    obdThrottlePct: null,
+    obdIntakeC: null,
+    obdEngineLoadPct: null,
+    obdVoltage: null,
     dtcResults: [],
     livePolling: false,
   }),

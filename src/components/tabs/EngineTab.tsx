@@ -20,6 +20,10 @@ interface EngineTabProps {
   obdConnected: boolean;
   obdRpm: number | null;
   obdSpeedKmh: number | null;
+  obdCoolantC: number | null;
+  obdThrottlePct: number | null;
+  obdIntakeC: number | null;
+  obdEngineLoadPct: number | null;
   livePolling: boolean;
   handleToggleLive: () => void;
   handleReadRpm: () => void;
@@ -166,6 +170,7 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   liveBtnActive: { backgroundColor: T.accentSoft, borderColor: T.accent },
   liveBtnText: { fontSize: 12, fontWeight: '700', color: T.muted },
   liveBtnTextActive: { color: T.accent },
+  hint: { fontSize: 12, color: T.muted, lineHeight: 16 },
   gaugesRow: { flexDirection: 'row', gap: 10 },
   gaugeCard: { flex: 1, backgroundColor: T.surface, borderRadius: 18, borderWidth: 1, borderColor: T.border, paddingVertical: 14, paddingHorizontal: 6, alignItems: 'center', gap: 4 },
   gaugeCardLabel: { fontSize: 10.5, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', color: T.muted },
@@ -175,11 +180,22 @@ const makeStyles = (T: ThemeColors) => StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: '700', color: T.text, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 });
 
-const EngineTab: React.FC<EngineTabProps> = ({ obdConnected, obdRpm, obdSpeedKmh, livePolling, handleToggleLive }) => {
+const EngineTab: React.FC<EngineTabProps> = ({ obdConnected, obdRpm, obdSpeedKmh, obdCoolantC, obdThrottlePct, obdIntakeC, obdEngineLoadPct, livePolling, handleToggleLive, handleReadRpm, handleReadSpeed }) => {
   const T = useTheme();
   const styles = useMemo(() => makeStyles(T), [T]);
   const rpm = obdRpm ?? 0;
   const speed = obdSpeedKmh ?? 0;
+
+  const stats = [
+    { label: 'Coolant',     value: obdCoolantC != null ? `${obdCoolantC}°C` : '—' },
+    { label: 'Throttle',    value: obdThrottlePct != null ? `${obdThrottlePct}%` : '—' },
+    { label: 'Intake air',  value: obdIntakeC != null ? `${obdIntakeC}°C` : '—' },
+    { label: 'Engine load', value: obdEngineLoadPct != null ? `${obdEngineLoadPct}%` : '—' },
+  ];
+
+  // Tap-to-read is only available when connected and not already live-polling
+  // (concurrent reads would clash with the polling loop's writes).
+  const canTapRead = obdConnected && !livePolling;
 
   return (
     <View style={styles.container}>
@@ -191,24 +207,23 @@ const EngineTab: React.FC<EngineTabProps> = ({ obdConnected, obdRpm, obdSpeedKmh
         </TouchableOpacity>
       </View>
 
+      {canTapRead && (
+        <Text style={styles.hint}>Tap a gauge to read once, or start Live for continuous updates.</Text>
+      )}
+
       <View style={styles.gaugesRow}>
-        <View style={styles.gaugeCard}>
+        <TouchableOpacity style={styles.gaugeCard} activeOpacity={0.7} onPress={handleReadRpm} disabled={!canTapRead}>
           <CircleGauge value={rpm} max={8000} size={GAUGE_SIZE} unit="rpm ×1000" tickLabels={[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000]} redlinePct={0.75} T={T} />
           <Text style={styles.gaugeCardLabel}>RPM</Text>
-        </View>
-        <View style={styles.gaugeCard}>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.gaugeCard} activeOpacity={0.7} onPress={handleReadSpeed} disabled={!canTapRead}>
           <CircleGauge value={speed} max={200} size={GAUGE_SIZE} unit="km / h" tickLabels={[0, 50, 100, 150, 200]} redlinePct={1.0} T={T} />
           <Text style={styles.gaugeCardLabel}>Speed</Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.statsGrid}>
-        {[
-          { label: 'Coolant',     value: obdConnected ? '92°C' : '—' },
-          { label: 'Throttle',    value: obdConnected ? '24%'  : '—' },
-          { label: 'Intake air',  value: obdConnected ? '38°C' : '—' },
-          { label: 'Engine load', value: obdConnected ? '41%'  : '—' },
-        ].map(({ label, value }) => (
+        {stats.map(({ label, value }) => (
           <View key={label} style={styles.statCard}>
             <Text style={styles.statLabel}>{label}</Text>
             <Text style={styles.statValue}>{value}</Text>

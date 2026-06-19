@@ -58,6 +58,11 @@ const DashboardScreen: React.FC = () => {
     obdConnecting,
     obdRpm,
     obdSpeedKmh,
+    obdCoolantC,
+    obdThrottlePct,
+    obdIntakeC,
+    obdEngineLoadPct,
+    obdVoltage,
     dtcResults,
     dtcScanning,
     livePolling,
@@ -80,6 +85,11 @@ const DashboardScreen: React.FC = () => {
     setObdLastResponse,
     setObdRpm,
     setObdSpeedKmh,
+    setObdCoolantC,
+    setObdThrottlePct,
+    setObdIntakeC,
+    setObdEngineLoadPct,
+    setObdVoltage,
     setDtcResults,
     setDtcScanning,
     setLivePolling,
@@ -194,6 +204,37 @@ const DashboardScreen: React.FC = () => {
     return null;
   };
 
+  // Returns the first data byte (A) of a single-byte mode-01 PID response (41 <pid> A …)
+  const parseFirstDataByte = (raw: string, pid: number): number | null => {
+    const bytes = parseHexBytes(raw);
+    for (let i = 0; i + 2 < bytes.length; i++) {
+      if (bytes[i] === 0x41 && bytes[i + 1] === pid) return bytes[i + 2];
+    }
+    return null;
+  };
+
+  const parseCoolantFrom0105 = (raw: string) => {
+    const a = parseFirstDataByte(raw, 0x05); return a === null ? null : a - 40;
+  };
+  const parseIntakeFrom010F = (raw: string) => {
+    const a = parseFirstDataByte(raw, 0x0f); return a === null ? null : a - 40;
+  };
+  const parseThrottleFrom0111 = (raw: string) => {
+    const a = parseFirstDataByte(raw, 0x11); return a === null ? null : Math.round((a * 100) / 255);
+  };
+  const parseLoadFrom0104 = (raw: string) => {
+    const a = parseFirstDataByte(raw, 0x04); return a === null ? null : Math.round((a * 100) / 255);
+  };
+  const parseVoltageFrom0142 = (raw: string): number | null => {
+    const bytes = parseHexBytes(raw);
+    for (let i = 0; i + 3 < bytes.length; i++) {
+      if (bytes[i] === 0x41 && bytes[i + 1] === 0x42) {
+        return Math.round(((bytes[i + 2] * 256 + bytes[i + 3]) / 1000) * 10) / 10;
+      }
+    }
+    return null;
+  };
+
   const parseDTCs = (raw: string): string[] => {
     const bytes = parseHexBytes(raw);
     const codes: string[] = [];
@@ -289,7 +330,7 @@ const DashboardScreen: React.FC = () => {
       bleDeviceRef.current = device; setObdConnected(true);
       try {
         await obdInit(); setObdLastResponse('OBD ready — reading vehicle info...');
-        await readVehicleInfo(); setObdConnecting(false);
+        await readVehicleInfo(); await readVoltage(); setObdConnecting(false);
         showModal('success', t('modal.connectedTitle'), t('modal.connectedMsg', { vehicle: vehicleMake }));
       } catch (e) {
         setObdLastResponse(`Connected, init failed: ${String(e)}`); setObdConnecting(false);
@@ -325,6 +366,15 @@ const DashboardScreen: React.FC = () => {
   const pollOnce = async () => {
     try { setObdRpm(parseRpmFrom010C(await obdSend('010C'))); } catch { /* ignore */ }
     try { setObdSpeedKmh(parseSpeedFrom010D(await obdSend('010D'))); } catch { /* ignore */ }
+    try { setObdCoolantC(parseCoolantFrom0105(await obdSend('0105'))); } catch { /* ignore */ }
+    try { setObdThrottlePct(parseThrottleFrom0111(await obdSend('0111'))); } catch { /* ignore */ }
+    try { setObdIntakeC(parseIntakeFrom010F(await obdSend('010F'))); } catch { /* ignore */ }
+    try { setObdEngineLoadPct(parseLoadFrom0104(await obdSend('0104'))); } catch { /* ignore */ }
+    try { setObdVoltage(parseVoltageFrom0142(await obdSend('0142'))); } catch { /* ignore */ }
+  };
+
+  const readVoltage = async () => {
+    try { setObdVoltage(parseVoltageFrom0142(await obdSend('0142'))); } catch { /* ignore */ }
   };
 
   const handleToggleLive = () => {
@@ -391,9 +441,9 @@ const DashboardScreen: React.FC = () => {
   const renderTabContent = () => {
     const tab = activeTab;
     if (tab === t('dashboard.engine')) {
-      return <EngineTab obdConnected={obdConnected} obdRpm={obdRpm} obdSpeedKmh={obdSpeedKmh} livePolling={livePolling} handleToggleLive={handleToggleLive} handleReadRpm={handleReadRpm} handleReadSpeed={handleReadSpeed} />;
+      return <EngineTab obdConnected={obdConnected} obdRpm={obdRpm} obdSpeedKmh={obdSpeedKmh} obdCoolantC={obdCoolantC} obdThrottlePct={obdThrottlePct} obdIntakeC={obdIntakeC} obdEngineLoadPct={obdEngineLoadPct} livePolling={livePolling} handleToggleLive={handleToggleLive} handleReadRpm={handleReadRpm} handleReadSpeed={handleReadSpeed} />;
     }
-    if (tab === t('dashboard.battery')) return <BatteryTab obdConnected={obdConnected} />;
+    if (tab === t('dashboard.battery')) return <BatteryTab obdConnected={obdConnected} obdVoltage={obdVoltage} />;
     if (tab === t('dashboard.errorLog')) return <ErrorLogTab obdConnected={obdConnected} dtcResults={dtcResults} dtcScanning={dtcScanning} handleScanDtc={handleScanDTCs} />;
     if (tab === t('dashboard.brakePad')) return <BrakePadTab obdConnected={obdConnected} />;
     if (tab === t('dashboard.abs')) return <ABSTab obdConnected={obdConnected} />;
