@@ -27,6 +27,7 @@ interface ObdState {
   // Vehicle info
   vehicleVin: string | null;
   vehicleMake: string;
+  vehicleDisplacementL: number | null;
   vinReading: boolean;
   
   // Live data
@@ -37,6 +38,11 @@ interface ObdState {
   obdIntakeC: number | null;
   obdEngineLoadPct: number | null;
   obdVoltage: number | null;
+  obdMafGs: number | null;
+  obdFuelRateLh: number | null;
+  obdFuelLevelPct: number | null;
+  obdMapKpa: number | null;
+  obdSupportedPids: string[];
 
   // DTC
   dtcResults: DtcResult[];
@@ -77,6 +83,7 @@ interface ObdState {
   
   setVehicleVin: (vin: string | null) => void;
   setVehicleMake: (make: string) => void;
+  setVehicleDisplacementL: (v: number | null) => void;
   setVinReading: (reading: boolean) => void;
   
   setObdRpm: (rpm: number | null) => void;
@@ -86,6 +93,11 @@ interface ObdState {
   setObdIntakeC: (v: number | null) => void;
   setObdEngineLoadPct: (v: number | null) => void;
   setObdVoltage: (v: number | null) => void;
+  setObdMafGs: (v: number | null) => void;
+  setObdFuelRateLh: (v: number | null) => void;
+  setObdFuelLevelPct: (v: number | null) => void;
+  setObdMapKpa: (v: number | null) => void;
+  setObdSupportedPids: (pids: string[]) => void;
 
   setDtcResults: (results: DtcResult[]) => void;
   setDtcScanning: (scanning: boolean) => void;
@@ -138,6 +150,7 @@ export const useObdStore = create<ObdState>((set) => ({
   
   vehicleVin: null,
   vehicleMake: 'My Car',
+  vehicleDisplacementL: null,
   vinReading: false,
   
   obdRpm: null,
@@ -147,6 +160,11 @@ export const useObdStore = create<ObdState>((set) => ({
   obdIntakeC: null,
   obdEngineLoadPct: null,
   obdVoltage: null,
+  obdMafGs: null,
+  obdFuelRateLh: null,
+  obdFuelLevelPct: null,
+  obdMapKpa: null,
+  obdSupportedPids: [],
 
   dtcResults: [],
   dtcScanning: false,
@@ -182,6 +200,7 @@ export const useObdStore = create<ObdState>((set) => ({
   
   setVehicleVin: (vin) => set({ vehicleVin: vin }),
   setVehicleMake: (make) => set({ vehicleMake: make }),
+  setVehicleDisplacementL: (v) => set({ vehicleDisplacementL: v }),
   setVinReading: (reading) => set({ vinReading: reading }),
   
   setObdRpm: (rpm) => set({ obdRpm: rpm }),
@@ -191,6 +210,11 @@ export const useObdStore = create<ObdState>((set) => ({
   setObdIntakeC: (v) => set({ obdIntakeC: v }),
   setObdEngineLoadPct: (v) => set({ obdEngineLoadPct: v }),
   setObdVoltage: (v) => set({ obdVoltage: v }),
+  setObdMafGs: (v) => set({ obdMafGs: v }),
+  setObdFuelRateLh: (v) => set({ obdFuelRateLh: v }),
+  setObdFuelLevelPct: (v) => set({ obdFuelLevelPct: v }),
+  setObdMapKpa: (v) => set({ obdMapKpa: v }),
+  setObdSupportedPids: (pids) => set({ obdSupportedPids: pids }),
 
   setDtcResults: (results) => set({ dtcResults: results }),
   setDtcScanning: (scanning) => set({ dtcScanning: scanning }),
@@ -250,6 +274,10 @@ export const useObdStore = create<ObdState>((set) => ({
     obdIntakeC: null,
     obdEngineLoadPct: null,
     obdVoltage: null,
+    obdMafGs: null,
+    obdFuelRateLh: null,
+    obdFuelLevelPct: null,
+    obdMapKpa: null,
     dtcResults: [],
     livePolling: false,
   }),

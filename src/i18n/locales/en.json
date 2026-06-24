@@ -14,6 +14,7 @@
     "title": "Dashboard",
     "connection": "CONNECTION",
     "engine": "Engine",
+    "fuel": "Fuel",
     "battery": "Battery",
     "errorLog": "Error log",
     "brakePad": "Brake pad",
@@ -32,6 +33,25 @@
     "troubleCodes": "TROUBLE CODES",
     "rawResponse": "RAW RESPONSE",
     "connectToStart": "Connect to OBD to start"
+  },
+  "fuel": {
+    "title": "Fuel use",
+    "titleLive": "Live fuel use",
+    "stop": "Stop",
+    "flow": "Flow rate",
+    "speed": "Speed",
+    "level": "Tank level",
+    "levelNote": "% of full",
+    "levelNoData": "Start Live engine data to read the tank level.",
+    "levelLow": "Low fuel — consider refuelling soon.",
+    "estimated": "Estimated from the MAP sensor (no MAF on this car).",
+    "per100": "per 100 km",
+    "atIdle": "at idle",
+    "l100": "L/100km",
+    "lh": "L/h",
+    "noData": "Start Live engine data to read fuel consumption.",
+    "adviceSave": "Driving more gently and holding a steady speed could cut your fuel use by about {{pct}}% — around {{value}} L/100km.",
+    "adviceEfficient": "You're driving smoothly — fuel use looks efficient. Keep it up!"
   },
   "modal": {
     "invalidInput": "Invalid Input",

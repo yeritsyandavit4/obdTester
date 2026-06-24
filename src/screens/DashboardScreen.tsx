@@ -18,6 +18,7 @@ import { useObdStore } from '../store/obdStore';
 import NotificationModal from '../components/NotificationModal';
 import LanguageSelector from '../components/LanguageSelector';
 import EngineTab from '../components/tabs/EngineTab';
+import FuelTab from '../components/tabs/FuelTab';
 import ErrorLogTab from '../components/tabs/ErrorLogTab';
 import BatteryTab from '../components/tabs/BatteryTab';
 import BrakePadTab from '../components/tabs/BrakePadTab';
@@ -63,6 +64,12 @@ const DashboardScreen: React.FC = () => {
     obdIntakeC,
     obdEngineLoadPct,
     obdVoltage,
+    obdMafGs,
+    obdFuelRateLh,
+    obdFuelLevelPct,
+    obdMapKpa,
+    obdSupportedPids,
+    vehicleDisplacementL,
     dtcResults,
     dtcScanning,
     livePolling,
@@ -90,6 +97,12 @@ const DashboardScreen: React.FC = () => {
     setObdIntakeC,
     setObdEngineLoadPct,
     setObdVoltage,
+    setObdMafGs,
+    setObdFuelRateLh,
+    setObdFuelLevelPct,
+    setObdMapKpa,
+    setObdSupportedPids,
+    setVehicleDisplacementL,
     setDtcResults,
     setDtcScanning,
     setLivePolling,
@@ -235,6 +248,59 @@ const DashboardScreen: React.FC = () => {
     return null;
   };
 
+  // PID 0110 — Mass Air Flow rate: (256*A + B) / 100 grams/sec
+  const parseMafFrom0110 = (raw: string): number | null => {
+    const bytes = parseHexBytes(raw);
+    for (let i = 0; i + 3 < bytes.length; i++) {
+      if (bytes[i] === 0x41 && bytes[i + 1] === 0x10) {
+        return Math.round(((bytes[i + 2] * 256 + bytes[i + 3]) / 100) * 100) / 100;
+      }
+    }
+    return null;
+  };
+
+  // PID 015E — Engine fuel rate: (256*A + B) / 20 litres/hour (not supported by all ECUs)
+  const parseFuelRateFrom015E = (raw: string): number | null => {
+    const bytes = parseHexBytes(raw);
+    for (let i = 0; i + 3 < bytes.length; i++) {
+      if (bytes[i] === 0x41 && bytes[i + 1] === 0x5e) {
+        return Math.round(((bytes[i + 2] * 256 + bytes[i + 3]) / 20) * 10) / 10;
+      }
+    }
+    return null;
+  };
+
+  // PID 012F — Fuel Tank Level Input: A * 100 / 255 percent
+  const parseFuelLevelFrom012F = (raw: string): number | null => {
+    const a = parseFirstDataByte(raw, 0x2f);
+    return a === null ? null : Math.round((a * 100) / 255);
+  };
+
+  // PID 010B — Intake Manifold Absolute Pressure: A kPa
+  const parseMapFrom010B = (raw: string): number | null => parseFirstDataByte(raw, 0x0b);
+
+  // PID 0100/0120/0140 — supported-PID bitmask. base is the PID byte (0x00/0x20/0x40);
+  // each of the 4 data bytes carries 8 flags, MSB first, for the next PIDs after base.
+  const parseSupportedPids = (raw: string, base: number): string[] => {
+    const bytes = parseHexBytes(raw);
+    const pids: string[] = [];
+    for (let i = 0; i + 5 < bytes.length; i++) {
+      if (bytes[i] === 0x41 && bytes[i + 1] === base) {
+        for (let k = 0; k < 4; k++) {
+          const b = bytes[i + 2 + k];
+          for (let bit = 0; bit < 8; bit++) {
+            if ((b >> (7 - bit)) & 1) {
+              const pidNum = base + k * 8 + bit + 1;
+              pids.push(pidNum.toString(16).toUpperCase().padStart(2, '0'));
+            }
+          }
+        }
+        break;
+      }
+    }
+    return pids;
+  };
+
   const parseDTCs = (raw: string): string[] => {
     const bytes = parseHexBytes(raw);
     const codes: string[] = [];
@@ -313,11 +379,24 @@ const DashboardScreen: React.FC = () => {
           setModel(decoded.model ?? undefined);
           setMake(decoded.make ?? undefined);
           if (decoded.make) setVehicleMake(decoded.make);
+          if (decoded.displacementL) setVehicleDisplacementL(decoded.displacementL);
           fetchCarImageUrl(decoded.make ?? '', decoded.model ?? undefined, decoded.modelYear ?? undefined).then(() => {});
         }
       } else { setVehicleMake('Vehicle'); }
     } catch { setVehicleMake('Vehicle'); }
     finally { setVinReading(false); }
+  };
+
+  // One-time probe: ask the ECU which PIDs it supports across the 01-60 range,
+  // so we only poll what exists and can pick the right fuel-calc path.
+  const probeSupportedPids = async () => {
+    try {
+      const pids: string[] = [];
+      pids.push(...parseSupportedPids(await obdSend('0100', 3000), 0x00));
+      if (pids.includes('20')) pids.push(...parseSupportedPids(await obdSend('0120', 3000), 0x20));
+      if (pids.includes('40')) pids.push(...parseSupportedPids(await obdSend('0140', 3000), 0x40));
+      setObdSupportedPids(pids);
+    } catch { /* leave empty — poll everything as a fallback */ }
   };
 
   const handleObdConnect = async () => {
@@ -330,6 +409,7 @@ const DashboardScreen: React.FC = () => {
       bleDeviceRef.current = device; setObdConnected(true);
       try {
         await obdInit(); setObdLastResponse('OBD ready — reading vehicle info...');
+        await probeSupportedPids();
         await readVehicleInfo(); await readVoltage(); setObdConnecting(false);
         showModal('success', t('modal.connectedTitle'), t('modal.connectedMsg', { vehicle: vehicleMake }));
       } catch (e) {
@@ -363,14 +443,27 @@ const DashboardScreen: React.FC = () => {
     catch (e) { Alert.alert('Speed failed', String(e)); }
   };
 
-  const pollOnce = async () => {
+  // Fast values change every moment — poll them on every tick.
+  // An empty supported-PID list means the probe failed — fall back to trying everything.
+  const supports = (pid: string) => obdSupportedPids.length === 0 || obdSupportedPids.includes(pid);
+
+  const pollFast = async () => {
     try { setObdRpm(parseRpmFrom010C(await obdSend('010C'))); } catch { /* ignore */ }
     try { setObdSpeedKmh(parseSpeedFrom010D(await obdSend('010D'))); } catch { /* ignore */ }
+    // Fuel flow, in priority order: direct fuel-rate PID → MAF sensor → MAP (speed-density estimate).
+    if (supports('5E')) { try { setObdFuelRateLh(parseFuelRateFrom015E(await obdSend('015E'))); } catch { /* ignore */ } }
+    if (supports('10')) { try { setObdMafGs(parseMafFrom0110(await obdSend('0110'))); } catch { /* ignore */ } }
+    if (supports('0B')) { try { setObdMapKpa(parseMapFrom010B(await obdSend('010B'))); } catch { /* ignore */ } }
+  };
+
+  // Slow values (temps, throttle, load, voltage) drift gradually — poll occasionally.
+  const pollSlow = async () => {
     try { setObdCoolantC(parseCoolantFrom0105(await obdSend('0105'))); } catch { /* ignore */ }
     try { setObdThrottlePct(parseThrottleFrom0111(await obdSend('0111'))); } catch { /* ignore */ }
     try { setObdIntakeC(parseIntakeFrom010F(await obdSend('010F'))); } catch { /* ignore */ }
     try { setObdEngineLoadPct(parseLoadFrom0104(await obdSend('0104'))); } catch { /* ignore */ }
     try { setObdVoltage(parseVoltageFrom0142(await obdSend('0142'))); } catch { /* ignore */ }
+    try { setObdFuelLevelPct(parseFuelLevelFrom012F(await obdSend('012F'))); } catch { /* ignore */ }
   };
 
   const readVoltage = async () => {
@@ -381,9 +474,18 @@ const DashboardScreen: React.FC = () => {
     if (livePolling) { stopLivePolling(); return; }
     setLivePolling(true);
     let polling = false;
-    const tick = async () => { if (polling) return; polling = true; await pollOnce(); polling = false; };
+    let n = 0;
+    const tick = async () => {
+      if (polling) return;
+      polling = true;
+      await pollFast();
+      if (n % 10 === 0) await pollSlow(); // refresh slow stats ~once every 10 cycles
+      n++;
+      polling = false;
+    };
     tick();
-    liveIntervalRef.current = setInterval(tick, 1000);
+    // Poll as fast as the adapter allows; the `polling` guard prevents overlap.
+    liveIntervalRef.current = setInterval(tick, 300);
   };
 
   const handleScanDTCs = async () => {
@@ -423,6 +525,7 @@ const DashboardScreen: React.FC = () => {
 
   const TABS = [
     t('dashboard.engine'),
+    t('dashboard.fuel'),
     t('dashboard.battery'),
     t('dashboard.errorLog'),
     t('dashboard.brakePad'),
@@ -443,6 +546,7 @@ const DashboardScreen: React.FC = () => {
     if (tab === t('dashboard.engine')) {
       return <EngineTab obdConnected={obdConnected} obdRpm={obdRpm} obdSpeedKmh={obdSpeedKmh} obdCoolantC={obdCoolantC} obdThrottlePct={obdThrottlePct} obdIntakeC={obdIntakeC} obdEngineLoadPct={obdEngineLoadPct} livePolling={livePolling} handleToggleLive={handleToggleLive} handleReadRpm={handleReadRpm} handleReadSpeed={handleReadSpeed} />;
     }
+    if (tab === t('dashboard.fuel')) return <FuelTab obdConnected={obdConnected} obdRpm={obdRpm} obdSpeedKmh={obdSpeedKmh} obdEngineLoadPct={obdEngineLoadPct} obdIntakeC={obdIntakeC} obdMafGs={obdMafGs} obdFuelRateLh={obdFuelRateLh} obdFuelLevelPct={obdFuelLevelPct} obdMapKpa={obdMapKpa} vehicleDisplacementL={vehicleDisplacementL} livePolling={livePolling} handleToggleLive={handleToggleLive} />;
     if (tab === t('dashboard.battery')) return <BatteryTab obdConnected={obdConnected} obdVoltage={obdVoltage} />;
     if (tab === t('dashboard.errorLog')) return <ErrorLogTab obdConnected={obdConnected} dtcResults={dtcResults} dtcScanning={dtcScanning} handleScanDtc={handleScanDTCs} />;
     if (tab === t('dashboard.brakePad')) return <BrakePadTab obdConnected={obdConnected} />;
